@@ -26,11 +26,20 @@ function setup(root) {
       playStep(p.steps[i], v, chord, time, { kind: p.kind, vel: i === 0 ? 0.95 : 0.78 });
       if (st.metro && i % M.slotsPerBeat === 0) click(time, i === 0, 0.6);
     },
-    onVisual: (i) => cells.forEach((c, k) => c.classList.toggle('on', k === i)),
+    onVisual: (i) => {
+      st.i = i;
+      cells.forEach((c, k) => c.classList.toggle('on', k === i));
+    },
   });
   seq.loop = { start: 0, end: M.slots };
 
   const api = {
+    title: p.name,
+    sub: `${p.kind === 'pick' ? 'Перебор' : 'Бой'} на ${chord}`,
+    slug: 'ritm-' + id,
+    el: root,
+    resume: () => btn.click(),
+    progress: () => ((st.i ?? 0) + 1) / M.slots,
     stop() {
       if (!st.playing) return;
       st.playing = false;

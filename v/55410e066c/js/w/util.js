@@ -33,14 +33,46 @@ export const store = {
   },
 };
 
-// Играет только один проигрыватель на странице.
-let active = null;
+// Играет только один проигрыватель на странице. Последний запущенный помнится для нижнего плеера:
+// у него есть title, sub, slug, el, stop(), resume(), progress() и по желанию prev()/next().
+let current = null;
+let playing = false;
+const emit = () => dispatchEvent(new CustomEvent('np:change'));
 export function claim(player) {
-  if (active && active !== player) active.stop();
-  active = player;
+  if (current && current !== player && playing) current.stop();
+  current = player;
+  playing = true;
+  emit();
 }
 export function release(player) {
-  if (active === player) active = null;
+  if (current === player && playing) {
+    playing = false;
+    emit();
+  }
+}
+// Выбрать проигрыватель для нижнего плеера, не запуская его (например, шаг по одной ноте).
+export function select(player) {
+  if (current && current !== player && playing) current.stop();
+  current = player;
+  playing = false;
+  emit();
+}
+export const nowPlaying = () => ({ current, playing });
+export const touchNowPlaying = emit;
+
+// Нота или аккорд таба: струны с 6-й к 1-й, «раскат» — по очереди.
+export function playTabEvent(ev, when, vel = 0.85) {
+  const list = ev.notes.slice().sort((a, b) => b.s - a.s);
+  if (list.every((n) => n.dead)) {
+    hush(when, 0.008);
+    chk(when, 0.75);
+    return;
+  }
+  list.forEach((n, k) => {
+    if (n.dead) return;
+    const s = 6 - n.s;
+    note(OPEN[s] + n.f, when + (ev.roll ? k * 0.03 : k * 0.003), { string: s, vel: n.tech ? vel * 0.62 : vel, bright: n.tech ? 0 : 1 });
+  });
 }
 
 export function notesOf(v) {

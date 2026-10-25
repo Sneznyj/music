@@ -1,8 +1,8 @@
 // Проигрыватель табов: таб в SVG, подсветка нот, гриф-подсказка, замедление, повтор, шаги.
-import { Seq, audio, chk, click, hush, note } from '../audio.js';
+import { Seq, audio, click, hush } from '../audio.js';
 import { parseTab } from '../lib/tab.js';
 import { NOTE_RU, OPEN } from '../lib/theory.js';
-import { claim, el, inView, mayAutoScroll, playButton, release, slider, store, toggle } from './util.js';
+import { claim, el, inView, mayAutoScroll, playButton, playTabEvent, release, select, slider, store, toggle } from './util.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const svg = (tag, attrs = {}, text) => {
@@ -229,20 +229,7 @@ function setup(root) {
     }
   }
 
-  function playEvent(ev, when, vel = 0.85) {
-    const list = ev.notes.slice().sort((a, b) => b.s - a.s);
-    if (list.every((n) => n.dead)) {
-      hush(when, 0.008);
-      chk(when, 0.75);
-      return;
-    }
-    list.forEach((n, k) => {
-      const s = 6 - n.s;
-      const t = when + (ev.roll ? k * 0.03 : k * 0.003);
-      if (n.dead) return;
-      note(OPEN[s] + n.f, t, { string: s, vel: n.tech ? vel * 0.62 : vel, bright: n.tech ? 0 : 1 });
-    });
-  }
+  const playEvent = playTabEvent;
 
   // ---------- воспроизведение ----------
   const barOf = (t) => tab.bars.find((b) => t >= b.start && t < b.start + b.len) || tab.bars[0];
@@ -274,6 +261,7 @@ function setup(root) {
       }
       st.countShow = false;
       status.textContent = '';
+      st.lastT = t;
       const i = evAt.get(t);
       if (i != null) {
         st.pos = i;
@@ -315,7 +303,7 @@ function setup(root) {
 
   function step(d) {
     if (st.playing) stop();
-    claim(api);
+    select(api);
     const i = Math.max(0, Math.min(tab.events.length - 1, (st.pos < 0 ? -1 : st.pos) + d));
     st.pos = i;
     st.from = tab.events[i].t;
@@ -331,14 +319,28 @@ function setup(root) {
       stop();
       start();
     } else {
-      claim(api);
+      select(api);
       playEvent(tab.events[i], audio().currentTime + 0.01);
       mark(i, false);
       status.textContent = 'Начнём отсюда — нажмите «Играть»';
     }
   }
 
-  const api = { stop: () => stop() };
+  const api = {
+    title: data.title || 'Таб',
+    sub: data.sub || 'Таб',
+    slug: data.slug || data.title || 'tab',
+    el: root,
+    stop: () => stop(),
+    resume: () => start(),
+    prev: () => step(-1),
+    next: () => step(1),
+    progress: () => {
+      const a = st.loop && seq.loop ? seq.loop.start : 0;
+      const b = st.loop && seq.loop ? seq.loop.end : tab.total;
+      return Math.max(0, Math.min(1, ((st.lastT ?? a) - a) / Math.max(1, b - a)));
+    },
+  };
   root.addEventListener('keydown', (e) => {
     if (e.target.closest('select, input')) return;
     if (e.key === ' ') {

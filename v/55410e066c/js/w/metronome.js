@@ -36,6 +36,7 @@ function setup(root) {
   const set = (v) => {
     st.bpm = Math.max(30, Math.min(240, Math.round(v)));
     bpmOut.textContent = String(st.bpm);
+    if (typeof api !== 'undefined') api.sub = `${st.meter} · ${st.bpm} уд/мин`;
     range.value = st.bpm;
     store.set('metroBpm', st.bpm);
   };
@@ -64,7 +65,15 @@ function setup(root) {
   });
 
   let seq = null;
-  const api = { stop: () => stopIt() };
+  const api = {
+    title: 'Метроном',
+    sub: `${st.meter} · ${st.bpm} уд/мин`,
+    slug: 'metronom',
+    el: root,
+    stop: () => stopIt(),
+    resume: () => go.click(),
+    progress: () => 0,
+  };
   function restart() {
     seq?.stop(true);
     const per = st.sub ? 2 : 1;

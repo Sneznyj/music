@@ -233,6 +233,8 @@ function setup(root) {
       const bi = Math.floor(t / M.slots);
       const bar = timeline[bi];
       const pos = t % M.slots;
+      st.lastTick = t;
+      st.lastBar = bi;
       const k = bar.chords.findIndex((c) => pos >= c.start && pos < c.start + c.slots);
       const ch = bar.chords[k];
       const sec = data.sections[bar.si];
@@ -253,8 +255,39 @@ function setup(root) {
     onEnd: () => stop(false),
   });
 
-  const api = { stop: () => stop() };
+  const secOf = (bi) => {
+    let k = 0;
+    secStart.forEach((b, i) => {
+      if (b <= bi) k = i;
+    });
+    return k;
+  };
+  const api = {
+    title: data.title,
+    sub: `${data.artist} · играть вместе`,
+    slug: data.slug,
+    el: root,
+    stop: () => stop(),
+    resume: () => start(st.lastBar || 0),
+    prev: () => {
+      const k = secOf(st.lastBar || 0);
+      if (st.playing) stop();
+      start(secStart[Math.max(0, k - 1)]);
+    },
+    next: () => {
+      const k = secOf(st.lastBar || 0);
+      if (st.playing) stop();
+      start(secStart[Math.min(secStart.length - 1, k + 1)]);
+    },
+    progress: () => Math.max(0, Math.min(1, (st.lastTick || 0) / (timeline.length * M.slots))),
+  };
+  document.querySelector('.playalong-go')?.addEventListener('click', () => {
+    root.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!st.playing) start(0);
+  });
   function start(fromBar) {
+    st.lastBar = fromBar;
+    st.lastTick = fromBar * M.slots;
     claim(api);
     audio();
     st.from = fromBar * M.slots;

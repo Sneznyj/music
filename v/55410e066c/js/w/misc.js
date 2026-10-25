@@ -17,7 +17,7 @@ const norm = (s) => s.toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N} ]
 export function catalog() {
   const grid = document.querySelector('.catalog');
   if (!grid) return;
-  const cards = [...grid.querySelectorAll('.song-card')];
+  const cards = [...grid.querySelectorAll('.cover-card')];
   const input = document.querySelector('#q');
   const found = document.querySelector('.found');
   const empty = document.querySelector('.empty');
@@ -25,6 +25,7 @@ export function catalog() {
   const params = new URLSearchParams(location.search);
   if (params.get('q')) input.value = params.get('q');
   if (params.get('lang')) f.lang = params.get('lang');
+  if (params.get('level')) f.level = params.get('level');
   const chips = [...document.querySelectorAll('.filters .chip')];
   const paint = () => chips.forEach((c) => {
     const k = c.dataset.f;
@@ -85,30 +86,6 @@ export function favorites() {
       paint();
     });
   });
-  const box = document.querySelector('.my-songs');
-  if (box && favs.size) {
-    const grid = box.querySelector('.my-grid');
-    Promise.all(
-      [...favs].map((slug) =>
-        fetch(`/pesni/${slug}/`)
-          .then((r) => (r.ok ? r.text() : ''))
-          .then((html) => {
-            const m = /<h1>([\s\S]*?)<span class="by">([\s\S]*?)<\/span><\/h1>/.exec(html);
-            return m ? { slug, title: m[1].trim(), artist: m[2].trim() } : null;
-          })
-          .catch(() => null),
-      ),
-    ).then((items) => {
-      const ok = items.filter(Boolean);
-      if (!ok.length) return;
-      box.hidden = false;
-      for (const s of ok) {
-        const a = el('a', { class: 'card song-card', href: `/pesni/${s.slug}/` });
-        a.innerHTML = `<span class="sc-title">${s.title}</span><span class="sc-artist">${s.artist}</span>`;
-        grid.append(a);
-      }
-    });
-  }
 }
 
 // ---------- пройденные уроки ----------

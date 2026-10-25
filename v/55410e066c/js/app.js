@@ -2,19 +2,6 @@
 import { audio } from './audio.js';
 import { playVoicing, voicingFromBtn } from './w/util.js';
 
-// тема: системная, светлая или тёмная
-const themeBtn = document.querySelector('.theme-btn');
-themeBtn?.addEventListener('click', () => {
-  const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-  const next = cur === 'dark' ? 'light' : 'dark';
-  document.documentElement.dataset.theme = next;
-  try {
-    localStorage.setItem('gitara.theme', next);
-  } catch {
-    /* не запоминаем */
-  }
-});
-
 // любая схема аккорда звучит по нажатию
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('.chord-btn');
@@ -40,6 +27,7 @@ for (const [sel, load] of blocks) {
   if (document.querySelector(sel)) load().then((m) => m.init()).catch((err) => console.error(sel, err));
 }
 
+import('./w/player.js').then((m) => m.init());
 import('./w/misc.js').then((m) => {
   m.catalog();
   m.favorites();
