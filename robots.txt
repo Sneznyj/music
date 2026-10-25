@@ -2,3 +2,4 @@ User-agent: *
 Allow: /
 
 Sitemap: https://music.sneznyj.com/sitemap.xml
+Sitemap: https://music.sneznyj.com/vokal/sitemap.xml

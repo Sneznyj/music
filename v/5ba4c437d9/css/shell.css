@@ -1,0 +1,117 @@
+/* Общее меню «Снежной музыки» внутри страниц Вокал-Студии (/vokal/…). У Вокал-Студии свои стили,
+   поэтому здесь только меню слева с классами sm-… и сдвиг её страниц вправо. На телефоне меню нет —
+   у Вокал-Студии свои вкладки снизу и ссылка «Музыка» в шапке. */
+.sm-side {
+  display: none;
+}
+@media (min-width: 901px) {
+  body {
+    padding-left: 248px;
+  }
+  .music-home {
+    display: none !important;
+  }
+  .sm-side {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 248px;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 22px 14px 18px;
+    background: #0a0f19;
+    border-right: 1px solid #1a2437;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    font: 16px/1.5 'Golos Text', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    box-sizing: border-box;
+  }
+  .sm-side * {
+    box-sizing: border-box;
+  }
+  .sm-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #eef3fb;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 17px;
+    white-space: nowrap;
+    padding: 0 10px 14px;
+  }
+  .sm-logo b {
+    font-weight: 800;
+    background: linear-gradient(90deg, #6c9fff, #38d6ff);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .sm-side .logo-mark {
+    width: 32px;
+    height: 32px;
+    flex: none;
+    background: none;
+    border-radius: 0;
+  }
+  .sm-side-h {
+    margin: 18px 10px 6px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #7a879e;
+  }
+  .sm-side-a {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 12px;
+    border-radius: 12px;
+    color: #b3bfd3;
+    text-decoration: none;
+    font-weight: 500;
+    transition: background 0.15s, color 0.15s;
+  }
+  .sm-side-a svg {
+    width: 20px;
+    height: 20px;
+    flex: none;
+  }
+  .sm-side-a:hover {
+    background: #162034;
+    color: #eef3fb;
+  }
+  .sm-side-a[aria-current] {
+    background: linear-gradient(90deg, rgb(79 140 255 / 0.22), rgb(79 140 255 / 0.06));
+    color: #fff;
+    box-shadow: inset 3px 0 0 #4f8cff;
+  }
+  .sm-side-a[aria-current] svg {
+    color: #38d6ff;
+  }
+  .sm-side-card {
+    margin-top: auto;
+    display: grid;
+    gap: 8px;
+    padding: 14px;
+    border-radius: 16px;
+    background: linear-gradient(140deg, #16264a, #121a2c);
+    border: 1px solid #2a3852;
+    color: #eef3fb;
+    text-decoration: none;
+  }
+  .sm-sc-k {
+    font-weight: 700;
+  }
+  .sm-side-prog {
+    height: 6px;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.08);
+  }
+  .sm-side-prog-t {
+    font-size: 13px;
+    color: #7a879e;
+  }
+}

@@ -1,0 +1,10 @@
+Фото на главной — Unsplash (unsplash.com/license: бесплатно, в том числе для коммерческих сайтов, без обязательной подписи).
+Кадрированы и сжаты в webp для сайта.
+
+home-singer.webp   Sincerely Media      https://unsplash.com/photos/MwLwNvXOMvg
+home-joy.webp      Emmanuel Ikwuegbu    https://unsplash.com/photos/n_qhPU-nsyc
+home-phone.webp    Sincerely Media      https://unsplash.com/photos/JrbMm1OcRhc
+home-console.webp  Nuno Alberto         https://unsplash.com/photos/eqNhQ5fwm_8
+home-laptop.webp   Soundtrap            https://unsplash.com/photos/C-2Wky-LT7k
+home-piano.webp    Jordan Whitfield     https://unsplash.com/photos/BhfE1IgcsA8
+home-hall.webp     Yvette de Wit        https://unsplash.com/photos/NYrVisodQ2M

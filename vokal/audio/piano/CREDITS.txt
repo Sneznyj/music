@@ -1,0 +1,6 @@
+Рояль в распевках и нотах-подсказках — Salamander Grand Piano V3 (Yamaha C5)
+Автор записей: Alexander Holm
+Лицензия: Creative Commons Attribution 3.0 — https://creativecommons.org/licenses/by/3.0/
+Источник: https://archive.org/details/SalamanderGrandPianoV3 (через набор Tone.js, tonejs.github.io/audio/salamander)
+
+Изменено: взяты 22 ноты от A1 до C7, обрезаны до 4 секунд с затуханием, сведены в моно, пережаты в MP3 112 кбит/с.
