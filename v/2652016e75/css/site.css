@@ -3775,16 +3775,18 @@ select {
   content: '';
   position: absolute;
   inset: 0;
+  /* поверх фото (оно позиционировано и идёт в разметке позже), но под текстом */
+  z-index: 1;
   background: linear-gradient(90deg, rgb(7 11 19 / 0.92) 0%, rgb(7 11 19 / 0.7) 45%, rgb(7 11 19 / 0.15) 100%), linear-gradient(0deg, rgb(7 11 19 / 0.5), transparent 40%);
 }
 .hero-photo .hero-art {
   width: min(250px, 30%);
   right: 6%;
   transform: translateY(-50%) rotate(-4deg);
-  z-index: 1;
+  z-index: 2;
 }
 .hero-photo .hero-txt {
-  z-index: 1;
+  z-index: 2;
 }
 @media (max-width: 760px) {
   .hero-photo .hero-art {
@@ -3799,7 +3801,7 @@ select {
 }
 .inst-hero-photo > div {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   max-width: 620px;
 }
 .photo-card {
