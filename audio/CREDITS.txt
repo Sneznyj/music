@@ -1,0 +1,12 @@
+Звуки инструментов на сайте — записи настоящих инструментов, свободные для использования.
+
+piano/         Salamander Grand Piano V3, Alexander Holm — CC BY 3.0
+               https://archive.org/details/SalamanderGrandPianoV3
+guitar-steel/  акустическая гитара со стальными струнами — University of Iowa Electronic Music Studios
+               (Musical Instrument Samples, свободно для любых проектов): https://theremin.music.uiowa.edu/
+guitar-nylon/  классическая гитара — «ClassicalGuitar-multisampled», quartertone, Freesound — CC BY 3.0
+               https://freesound.org/people/quartertone/packs/11573/
+bass/          электрический бас — Karoryfer Samples: https://www.karoryfer.com/karoryfer-samples
+
+Подготовка (обрезка тишины, длина 3–4 с, затухание в конце, моно 96 кбит/с) взята из сборки
+tonejs-instruments (Nicholas Brosowsky): https://github.com/nbrosowsky/tonejs-instruments
