@@ -3696,3 +3696,14 @@ body[data-vsrc='vk'] .src-vk {
 .vk .yt-play {
   background: rgb(0 119 255 / 0.94);
 }
+
+/* иконка внутри обычной ссылки в тексте — размером с букву */
+p a:not(.btn) > svg,
+li a:not(.btn) > svg,
+summary a > svg,
+.muted a:not(.btn) > svg {
+  width: 0.85em;
+  height: 0.85em;
+  margin-left: 3px;
+  vertical-align: -0.08em;
+}

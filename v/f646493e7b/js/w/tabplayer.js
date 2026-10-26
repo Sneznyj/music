@@ -33,7 +33,7 @@ function setup(root) {
   root.tabIndex = -1;
 
   const st = {
-    speed: store.get('tabSpeed', 0.75),
+    speed: store.get('tabSpeed2', 1),
     loop: true,
     metro: false,
     count: false,
@@ -60,7 +60,7 @@ function setup(root) {
     fmt: (v) => `${v}% · ${Math.round((data.bpm * v) / 100)}`,
     oninput: (v) => {
       st.speed = v / 100;
-      store.set('tabSpeed', st.speed);
+      store.set('tabSpeed2', st.speed);
     },
   });
   const loopT = toggle('Повтор', st.loop, (v) => {

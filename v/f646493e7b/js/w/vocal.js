@@ -1,7 +1,8 @@
 // Вкладка «Вокал» на странице песни: минус из аккордов песни (гитара и бас в выбранной тональности и темпе),
 // запись голоса под него, «ваша нота» во время пения, прослушивание с минусом, скачивание WAV
 // и передача записи в Студию (/vocal/studio/), где «Сделать красиво» подтянет ноты и добавит обработку.
-import { Seq, audio, click, hush, note, outStream } from '../audio.js';
+import { Seq, audio, click, drum, hush, loadDrums, note, outStream } from '../audio.js';
+import { drumHits, styleFor } from '../lib/drums.js';
 import { icon } from '../lib/icons.js';
 import { METERS, PATTERNS } from '../lib/patterns.js';
 import * as T from '../lib/theory.js';
@@ -33,21 +34,25 @@ function setup(root) {
   const flat = [];
   data.sections.forEach((s, si) => {
     for (let r = 0; r < s.repeat; r++)
-      for (const bar of s.bars) {
+      s.bars.forEach((bar, bi) => {
         let pos = 0;
+        // начало части (тарелка) и её последний такт (сбивка) — для барабанов
+        const secFirst = bi === 0 && r === 0 && si > 0;
+        const secLast = bi === s.bars.length - 1 && r === s.repeat - 1;
         for (const c of bar)
           for (let k = 0; k < c.slots; k++) {
-            flat.push({ orig: c.name, sec: si, pos, first: k === 0 });
+            flat.push({ orig: c.name, sec: si, pos, first: k === 0, secFirst, secLast });
             pos++;
           }
-      }
+      });
   });
   const countIn = M.slots;
   const shiftNow = () => (data.capo || 0) + (key.tr || 0);
   const flatsNow = () => T.keyUsesFlats(key.key || data.key);
   const soundName = (orig) => (shiftNow() ? T.transposeChord(orig, shiftNow(), flatsNow()) : orig);
   const altPos = data.meter === '6/8' ? 3 : 4;
-  const st = { speed: store.get('vocalSpeed', 1), guitar: true, bass: true, metro: false };
+  const st = { speed: store.get('vocalSpeed', 1), guitar: true, bass: true, drums: true, metro: false };
+  const style = styleFor(pat.kind);
 
   // ---------- интерфейс минуса ----------
   const minusBox = root.querySelector('.vt-minus-ui');
@@ -62,7 +67,7 @@ function setup(root) {
     const b = e.target.closest('[data-t]');
     if (b) dispatchEvent(new CustomEvent('song:set', { detail: { tr: Number(b.dataset.t) } }));
   });
-  const parts = el('div', { class: 'vt-parts' }, toggle('Гитара', st.guitar, (v) => (st.guitar = v)), toggle('Бас', st.bass, (v) => (st.bass = v)), toggle('Метроном', st.metro, (v) => (st.metro = v)));
+  const parts = el('div', { class: 'vt-parts' }, toggle('Гитара', st.guitar, (v) => (st.guitar = v)), toggle('Бас', st.bass, (v) => (st.bass = v)), toggle('Барабаны', st.drums, (v) => (st.drums = v)), toggle('Метроном', st.metro, (v) => (st.metro = v)));
   minusBox.replaceChildren(el('div', { class: 'vt-row' }, playBtn, tone), now, secOut, prog, el('div', { class: 'vt-row' }, speed.node), parts);
 
   const showChord = (i) => {
@@ -107,10 +112,12 @@ function setup(root) {
       const m = it.pos === altPos && !it.first && fifthOk ? root + 7 : root;
       note(m, time, { string: 0, voice: 'bass', vel: it.pos === 0 ? 0.95 : 0.8, bright: 0 });
     }
+    if (st.drums) for (const h of drumHits(style, data.meter, it.pos, M.slots, { first: it.secFirst, last: it.secLast })) drum(h, time, it.pos % M.slotsPerBeat === 0 ? 0.9 : 0.62);
     if (st.metro && it.pos % M.slotsPerBeat === 0) click(time, it.pos === 0, 0.5);
   }
   function start(withCount = true) {
     audio();
+    loadDrums();
     seq?.stop(true);
     seq = new Seq({
       total: flat.length + countIn,

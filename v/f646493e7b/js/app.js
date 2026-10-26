@@ -63,6 +63,7 @@ if (document.querySelector('.chord-btn, .tabplayer, .songsheet, .pattern, .prog,
   idle(() => {
     prefetch();
     if (document.querySelector('[data-inst="bass"], .vocal-tools')) prefetch('bass');
+    if (document.querySelector('.songsheet, .vocal-tools')) for (const n of ['kick1', 'kick2', 'snare1', 'snare2', 'stick', 'hat1', 'hat2', 'hatopen', 'shake1', 'shake2']) fetch(`/audio/drums/${n}.mp3`);
     if (document.querySelector('[data-inst="ukulele"]')) prefetch('nylon');
   });
 }

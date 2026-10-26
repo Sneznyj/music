@@ -2,7 +2,7 @@
 // регулируемой скоростью, тональность и каподастр (общие со вкладкой «Аккорды»), схемы аккордов выбранного
 // инструмента и «Свой текст» — его человек вставляет сам, хранится только в его браузере.
 import { instChordCard } from '../lib/cards.js';
-import { textHTML } from '../lib/chordpro.js';
+import { hasChords, placeChords, textHTML } from '../lib/chordpro.js';
 import { icon } from '../lib/icons.js';
 import { voicingFor } from '../lib/instruments.js';
 import * as T from '../lib/theory.js';
@@ -144,7 +144,15 @@ function setup(root) {
     input.value = saved;
     show(saved);
     if (saved) own.open = false;
+    const hint = own.querySelector('.sb-own-hint');
     own.querySelector('.sb-own-save').addEventListener('click', () => {
+      // вставили только слова — расставляем аккорды песни по частям (примерно; можно поправить в тексте)
+      if (input.value.trim() && !hasChords(input.value)) {
+        const blocks = [];
+        for (const sec of data.sections) for (let r = 0; r < (sec.repeat || 1); r++) blocks.push({ name: sec.name, bars: sec.bars.map((b) => b.map((c) => c.name)) });
+        input.value = placeChords(input.value, blocks);
+        if (hint) hint.hidden = false;
+      }
       store.set(keyName, input.value);
       show(input.value);
       own.open = false;

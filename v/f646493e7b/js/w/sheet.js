@@ -1,6 +1,7 @@
 // Страница песни: инструмент (гитара, укулеле, фортепиано, бас), тональность и каподастр, «без баррэ»,
 // игра вместе с подсветкой аккордов.
-import { Seq, audio, click, hush } from '../audio.js';
+import { Seq, audio, click, drum, hush, loadDrums } from '../audio.js';
+import { drumHits, styleFor } from '../lib/drums.js';
 import { instChordCard } from '../lib/cards.js';
 import { diagramSVG, fretsText } from '../lib/diagram.js';
 import { INSTRUMENTS, voicingFor } from '../lib/instruments.js';
@@ -25,10 +26,11 @@ function setup(root) {
     tr: saved.tr || 0,
     capo: saved.capo ?? data.capo,
     pattern: saved.pattern && PATTERNS[saved.pattern]?.meter === data.meter ? saved.pattern : data.pattern,
-    speed: saved.speed || 0.7,
+    speed: saved.sv === 2 && saved.speed ? saved.speed : 1,
     guitar: true,
     inst: INSTRUMENTS[new URLSearchParams(location.search).get('inst')] ? new URLSearchParams(location.search).get('inst') : store.get('instrument', 'guitar'),
-    metro: true,
+    metro: false,
+    drums: store.get('drums', true),
     count: true,
     playing: false,
   };
@@ -116,7 +118,7 @@ function setup(root) {
       card.querySelector('.chord-cap').innerHTML = shift() === 0 ? capOrig[i] : fretsText(v);
     });
     chips.forEach((c) => (c.textContent = nameOf(c.dataset.o)));
-    store.set('song.' + data.slug, { tr: st.tr, capo: st.capo, pattern: st.pattern, speed: st.speed });
+    store.set('song.' + data.slug, { tr: st.tr, capo: st.capo, pattern: st.pattern, speed: st.speed, sv: 2 });
     // остальные вкладки песни (текст с аккордами, вокал) берут тональность отсюда
     window.__songKey = { shift: shift(), flats: flats(), tr: st.tr, capo: capoNow(), capoSet: st.capo, inst: st.inst, key: soundKey(), fretted: fretted() };
     dispatchEvent(new CustomEvent('song:key', { detail: window.__songKey }));
@@ -215,7 +217,7 @@ function setup(root) {
     fmt: (v) => `${v}% · ${Math.round((data.bpm * v) / 100)}`,
     oninput: (v) => {
       st.speed = v / 100;
-      store.set('song.' + data.slug, { tr: st.tr, capo: st.capo, pattern: st.pattern, speed: st.speed });
+      store.set('song.' + data.slug, { tr: st.tr, capo: st.capo, pattern: st.pattern, speed: st.speed, sv: 2 });
     },
   });
   const status = el('div', { class: 'pa-pos muted', 'aria-live': 'polite' }, 'Нажмите «Играть вместе» — после отсчёта начнётся песня.');
@@ -233,6 +235,11 @@ function setup(root) {
         'div',
         { class: 'tg-group' },
         instToggle,
+        toggle('Барабаны', st.drums, (v) => {
+          st.drums = v;
+          store.set('drums', v);
+          if (v) loadDrums();
+        }),
         toggle('Метроном', st.metro, (v) => (st.metro = v)),
         toggle('Отсчёт', st.count, (v) => (st.count = v)),
       ),
@@ -275,6 +282,12 @@ function setup(root) {
       const p = PATTERNS[st.pattern];
       if (st.guitar && ch) playStepOn(st.inst, p.steps[pos], voicingOf(ch.orig), nameOf(ch.orig), time, { kind: p.kind, vel: pos === 0 ? 0.95 : 0.78, beat: pos % M.slotsPerBeat === 0 });
       if (st.metro && pos % M.slotsPerBeat === 0) click(time, pos === 0, st.guitar ? 0.45 : 0.8);
+      if (st.drums) {
+        const bi = Math.floor(t / M.slots);
+        const next = timeline[bi + 1];
+        const opts = { first: bar.bi === 0 && bar.r === 0 && bi > 0, last: !next || next.si !== bar.si };
+        for (const h of drumHits(styleFor(p.kind), data.meter, pos, M.slots, opts)) drum(h, time, pos % M.slotsPerBeat === 0 ? 0.9 : 0.62);
+      }
     },
     onVisual: (t) => {
       if (t < st.from) {
@@ -338,6 +351,7 @@ function setup(root) {
     if (!st.playing) start(0);
   });
   function start(fromBar) {
+    if (st.drums) loadDrums();
     st.lastBar = fromBar;
     st.lastTick = fromBar * M.slots;
     claim(api);

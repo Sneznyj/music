@@ -7,9 +7,10 @@ let body = null;
 let master = null;
 let clickBus = null;
 let sampleBus = null;
+let limiter = null;
 const bufs = new Map();
 const ringing = new Map();
-let volume = 0.9;
+let volume = 0.75;
 
 const SETS = {
   steel: { dir: 'guitar-steel', notes: 'E2 G2 As2 Cs3 E3 G3 As3 Cs4 E4 G4 As4 Cs5 D5' },
@@ -75,6 +76,41 @@ export function loadSet(name) {
   return st.ready;
 }
 
+// ---------- ударные: записи VCSL (CC0), static/audio/drums ----------
+const DRUM_FILES = ['kick1', 'kick2', 'snare1', 'snare2', 'stick', 'hat1', 'hat2', 'hatopen', 'shake1', 'shake2'];
+const DRUM_GAIN = { k: 0.5, s: 0.4, st: 0.34, h: 0.17, o: 0.16, sh: 0.2 };
+let drumBufs = null;
+let drumLoading = null;
+let openHat = null;
+let shakeTurn = 0;
+export function loadDrums() {
+  if (drumBufs || drumLoading) return drumLoading;
+  audio();
+  drumLoading = Promise.all(DRUM_FILES.map((n) => fetch(`/audio/drums/${n}.mp3`).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b)).then((buf) => [n, buf])))
+    .then((list) => (drumBufs = Object.fromEntries(list)))
+    .catch(() => (drumLoading = null));
+  return drumLoading;
+}
+
+// Удар: k бочка, s малый, st обод, h хай-хэт, o открытый хай-хэт, sh шейкер; vel 0…1.
+export function drum(name, when, vel = 0.8) {
+  audio();
+  if (!drumBufs) return loadDrums();
+  const t = Math.max(when ?? ctx.currentTime, ctx.currentTime);
+  const file = { k: vel > 0.85 ? 'kick2' : 'kick1', s: vel > 0.85 ? 'snare2' : 'snare1', st: 'stick', h: Math.random() < 0.5 ? 'hat1' : 'hat2', o: 'hatopen', sh: (shakeTurn++ % 2 ? 'shake2' : 'shake1') }[name];
+  if (!file) return;
+  // закрытый хай-хэт глушит открытый
+  if ((name === 'h' || name === 'o') && openHat && openHat.end > t) openHat.g.gain.setTargetAtTime(0, t, 0.02);
+  const src = ctx.createBufferSource();
+  src.buffer = drumBufs[file];
+  src.playbackRate.value = 0.98 + Math.random() * 0.04;
+  const g = ctx.createGain();
+  g.gain.value = DRUM_GAIN[name] * (0.55 + 0.45 * vel);
+  src.connect(g).connect(sampleBus);
+  src.start(t);
+  if (name === 'o') openHat = { g, end: t + src.buffer.duration };
+}
+
 // Короткая «комната»: без неё запись звучит слишком сухо и близко.
 function roomIR() {
   const sr = ctx.sampleRate;
@@ -110,7 +146,17 @@ export function audio() {
     lp.type = 'lowpass';
     lp.frequency.value = 8000;
     lp.Q.value = 0.4;
-    lo.connect(mid).connect(box).connect(pres).connect(lp).connect(comp).connect(master).connect(ctx.destination);
+    // на выходе — мягкий срез пиков: до 0,7 звук не трогаем, выше плавно упираемся в 1 —
+    // гитара, бас и барабаны вместе не хрипят (компрессор браузера сам добавляет громкости, он тут не годится)
+    limiter = ctx.createWaveShaper();
+    const curve = new Float32Array(4097);
+    for (let i = 0; i < curve.length; i++) {
+      const x = i / 2048 - 1;
+      const a = Math.abs(x);
+      curve[i] = Math.sign(x) * (a < 0.7 ? a : 0.7 + 0.3 * Math.tanh((a - 0.7) / 0.3));
+    }
+    limiter.curve = curve;
+    lo.connect(mid).connect(box).connect(pres).connect(lp).connect(comp).connect(master).connect(limiter).connect(ctx.destination);
     body = lo;
     // записи: чуть приглушённый верх (мягче) и немного комнаты
     sampleBus = ctx.createGain();
@@ -156,7 +202,7 @@ export function outStream() {
   audio();
   if (!outDest) {
     outDest = ctx.createMediaStreamDestination();
-    master.connect(outDest);
+    limiter.connect(outDest);
   }
   return outDest.stream;
 }

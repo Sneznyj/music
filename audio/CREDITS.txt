@@ -10,3 +10,5 @@ bass/          электрический бас — Karoryfer Samples: https://
 
 Подготовка (обрезка тишины, длина 3–4 с, затухание в конце, моно 96 кбит/с) взята из сборки
 tonejs-instruments (Nicholas Brosowsky): https://github.com/nbrosowsky/tonejs-instruments
+drums/         ударные — Versilian Community Sample Library (VCSL), Versilian Studios — CC0 (общественное достояние)
+               https://github.com/sgossner/VCSL : большой барабан, малый барабан, удар по ободу, хай-хэт, шейкер

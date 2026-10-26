@@ -18,7 +18,7 @@ function setup(root) {
   const to = Math.max(from + 23, 12 * Math.ceil((mel.max + 1) / 12) - 1);
   const kb = root.querySelector('.pm-kb');
   const row = root.querySelector('.pm-notes');
-  const st = { speed: store.get('pmSpeed', 0.8), loop: true, metro: false, playing: false, pos: -1, from: 0 };
+  const st = { speed: store.get('pmSpeed2', 1), loop: true, metro: false, playing: false, pos: -1, from: 0 };
   root.classList.add('ready');
 
   row.innerHTML = mel.events.map((e, i) => `<button type="button" class="pm-n" data-i="${i}">${e.chord ? `<i>${e.chord}</i>` : ''}${e.notes.map(pianoName).join('+')}</button>`).join('');
@@ -110,6 +110,6 @@ function setup(root) {
   const next = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Следующая нота', html: '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>' });
   prev.addEventListener('click', () => step(-1));
   next.addEventListener('click', () => step(1));
-  const speed = slider({ label: 'Скорость', min: 30, max: 120, step: 5, value: Math.round(st.speed * 100), fmt: (v) => `${v}%`, oninput: (v) => { st.speed = v / 100; store.set('pmSpeed', st.speed); } });
+  const speed = slider({ label: 'Скорость', min: 30, max: 120, step: 5, value: Math.round(st.speed * 100), fmt: (v) => `${v}%`, oninput: (v) => { st.speed = v / 100; store.set('pmSpeed2', st.speed); } });
   root.querySelector('.pm-ctl').append(btn, el('div', { class: 'tp-steps' }, prev, next), speed.node, el('div', { class: 'tg-group' }, toggle('Повтор', true, (v) => (st.loop = v)), toggle('Метроном', false, (v) => (st.metro = v))));
 }
