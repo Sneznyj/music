@@ -1,0 +1,469 @@
+// Страница песни: инструмент (гитара, укулеле, фортепиано, бас), тональность и каподастр, «без баррэ»,
+// «Играть» — полная версия песни всеми инструментами (w/band.js) и «Играть вместе» — ритм на своём инструменте
+// с отсчётом и подсветкой аккордов. Оба играют одним проигрывателем, видны в нижнем плеере.
+import { Seq, audio, click, drum, hush, loadDrums } from '../audio.js';
+import { drumHits, styleFor } from '../lib/drums.js';
+import { instChordCard } from '../lib/cards.js';
+import { diagramSVG, fretsText } from '../lib/diagram.js';
+import { INSTRUMENTS, voicingFor } from '../lib/instruments.js';
+import { keyboardSVG } from '../lib/keyboard.js';
+import { METERS, PATTERNS, patternsFor } from '../lib/patterns.js';
+import * as T from '../lib/theory.js';
+import { pianoHush } from '../piano.js';
+import { PART_ORDER, makeBand, partsFor, preload, saveParts } from './band.js';
+import { PLAY_ICON, STOP_ICON, chordTip, claim, el, mayAutoScroll, playButton, playChordOn, playStepOn, release, slider, store, toggle } from './util.js';
+
+export function init() {
+  const root = document.querySelector('.songsheet');
+  if (root) setup(root);
+}
+
+const semis = (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'полутон' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'полутона' : 'полутонов'}`;
+
+function setup(root) {
+  const data = JSON.parse(root.querySelector('.sheet-data').textContent);
+  const M = METERS[data.meter];
+  const saved = store.get('song.' + data.slug, {});
+  const st = {
+    tr: saved.tr || 0,
+    capo: saved.capo ?? data.capo,
+    // выбор ритма помним с pv: 1 — старые сохранения (до своих рисунков песен) не перебивают ритм песни
+    pattern: saved.pv && saved.pattern && PATTERNS[saved.pattern]?.meter === data.meter && (!PATTERNS[saved.pattern].own || PATTERNS[saved.pattern].own === data.slug) ? saved.pattern : data.pattern,
+    speed: saved.sv === 2 && saved.speed ? saved.speed : 1,
+    guitar: true,
+    inst: INSTRUMENTS[new URLSearchParams(location.search).get('inst')] ? new URLSearchParams(location.search).get('inst') : store.get('instrument', 'guitar'),
+    metro: false,
+    drums: store.get('drums', true),
+    count: true,
+    playing: false,
+    mode: 'along',
+    parts: partsFor(data),
+  };
+
+  // ---------- тональность ----------
+  // у гитары и укулеле аккорды — формы при каподастре; у фортепиано и баса каподастра нет: аккорды как звучат
+  const fretted = () => st.inst === 'guitar' || st.inst === 'ukulele';
+  const capoNow = () => (fretted() ? st.capo : 0);
+  const shift = () => data.capo + st.tr - capoNow();
+  const soundKey = () => T.transposeKey(data.key, st.tr);
+  const flats = () => T.keyUsesFlats(T.transposeKey(soundKey(), -capoNow()));
+  const nameOf = (orig) => (shift() === 0 ? orig : T.transposeChord(orig, shift(), flats()));
+  const voicingOf = (orig) => {
+    if (st.inst !== 'guitar') return voicingFor(st.inst, nameOf(orig));
+    if (shift() === 0 && data.shapes[orig]) {
+      const [f, fi] = data.shapes[orig].split(' ');
+      return T.voicingFromString(f, fi);
+    }
+    return T.voicings(nameOf(orig))[0] || null;
+  };
+  // каподастр поднимает всё, что звучит на грифе: форма та же, лады выше
+  const sounding = (v) => (v?.frets && fretted() && st.capo ? { ...v, frets: v.frets.map((f) => (f < 0 ? f : f + st.capo)) } : v);
+  const smallDiagram = (v, name) => (st.inst === 'piano' ? keyboardSVG({ from: 48, to: 71, notes: v ? v.rh.map((m) => ({ midi: m })) : [], labels: '', name }) : diagramSVG(v, { name, open: INSTRUMENTS[st.inst].open }));
+
+  // вкладка «Текст и аккорды»: инструмент, панель тональности, схемы аккордов, текст, «Играть вместе»
+  const panel = root.closest('[data-panel]') || document;
+  const top = panel.querySelector('.songsheet-chords');
+  const keybar = panel.querySelector('.keybar');
+  const kbKey = panel.querySelector('.kb-key');
+  const kbCapo = panel.querySelector('.kb-capo');
+  const kbNote = panel.querySelector('.kb-note');
+  const kbReset = panel.querySelector('.kb-reset');
+  const box = top.querySelector('.song-chords');
+  const guitarHTML = box.innerHTML;
+  let cards = [...box.querySelectorAll('.chord')];
+  const capOrig = cards.map((c) => c.querySelector('.chord-cap').innerHTML);
+  const instTabs = [...panel.querySelectorAll('.inst-tab')];
+  const capoGroup = panel.querySelector('.kb-capo')?.closest('.kb-group');
+  const easyBtn = panel.querySelector('.kb-easy');
+  instTabs.forEach((b) =>
+    b.addEventListener('click', () => {
+      if (st.playing && st.mode === 'along') stop();
+      st.inst = b.dataset.inst;
+      store.set('instrument', st.inst);
+      update();
+    }),
+  );
+  const chips = [...root.querySelectorAll('.sheet .ch')];
+  chips.forEach((c) => (c.dataset.o = c.textContent));
+  keybar.hidden = false;
+
+  function update() {
+    instTabs.forEach((b) => b.classList.toggle('on', b.dataset.inst === st.inst));
+    instTabs.forEach((b) => b.setAttribute('aria-selected', String(b.dataset.inst === st.inst)));
+    if (capoGroup) capoGroup.hidden = !fretted();
+    if (easyBtn) easyBtn.hidden = !fretted();
+    top.classList.toggle('inst-piano', st.inst === 'piano');
+    kbKey.textContent = soundKey();
+    kbCapo.textContent = String(st.capo);
+    const changed = st.tr !== 0 || (fretted() && st.capo !== data.capo) || (!fretted() && data.capo > 0);
+    kbReset.hidden = !(st.tr !== 0 || st.capo !== data.capo);
+    kbNote.hidden = !changed;
+    if (changed) {
+      const parts = [`Звучит в ${soundKey()} (${T.keyRu(soundKey())})`];
+      if (st.tr) parts.push(`на ${semis(Math.abs(st.tr))} ${st.tr > 0 ? 'выше' : 'ниже'} оригинала`);
+      const capoText = fretted() ? (st.capo ? `Каподастр на ${st.capo}-м ладу.` : 'Без каподастра.') : 'Аккорды записаны так, как звучат, — без каподастра.';
+      kbNote.textContent = `${parts.join(', ')}. ${capoText}`;
+    }
+    if (st.inst !== 'guitar') {
+      box.innerHTML = data.chords.map((orig) => instChordCard(st.inst, nameOf(orig), voicingOf(orig))).join('');
+      cards = [];
+    } else if (!cards.length) {
+      box.innerHTML = guitarHTML;
+      cards = [...box.querySelectorAll('.chord')];
+    }
+    data.chords.forEach((orig, i) => {
+      const card = cards[i];
+      if (!card || st.inst !== 'guitar') return;
+      const name = nameOf(orig);
+      const v = voicingOf(orig);
+      const btn = card.querySelector('.chord-btn');
+      btn.dataset.chord = name;
+      if (v) {
+        btn.dataset.frets = v.frets.join(',');
+        btn.dataset.fingers = v.fingers.join(',');
+      }
+      btn.setAttribute('aria-label', `Сыграть аккорд ${name}`);
+      btn.innerHTML = `<span class="chord-name">${name}</span>${diagramSVG(v, { name })}`;
+      card.querySelector('.chord-cap').innerHTML = shift() === 0 ? capOrig[i] : fretsText(v);
+    });
+    // схемы звучат с каподастром, как гитара с ним
+    box.querySelectorAll('.chord-btn').forEach((b) => (b.dataset.capo = fretted() ? st.capo : 0));
+    chips.forEach((c) => (c.textContent = nameOf(c.dataset.o)));
+    store.set('song.' + data.slug, { tr: st.tr, capo: st.capo, pattern: st.pattern, speed: st.speed, sv: 2, pv: 1 });
+    // остальные вкладки песни (текст с аккордами, вокал) берут тональность отсюда
+    window.__songKey = { shift: shift(), flats: flats(), tr: st.tr, capo: capoNow(), capoSet: st.capo, inst: st.inst, key: soundKey(), fretted: fretted() };
+    dispatchEvent(new CustomEvent('song:key', { detail: window.__songKey }));
+    instToggle.textContent = INSTRUMENTS[st.inst].name;
+    if (curChord) showNow(curChord, nextChord);
+    else showNow(flat[0], flat.find((c) => c.orig !== flat[0].orig));
+  }
+
+  // кнопки тональности и каподастра на других вкладках
+  addEventListener('song:set', (e) => {
+    const d = e.detail || {};
+    if (d.tr) st.tr = Math.max(-11, Math.min(11, st.tr + d.tr));
+    if (d.capo) st.capo = Math.max(0, Math.min(9, st.capo + d.capo));
+    update();
+  });
+
+  keybar.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b || !(b.dataset.tr || b.dataset.capo || b.classList.contains('kb-reset') || b.classList.contains('kb-easy'))) return;
+    if (b.dataset.tr) st.tr = Math.max(-11, Math.min(11, st.tr + Number(b.dataset.tr)));
+    else if (b.dataset.capo) st.capo = Math.max(0, Math.min(9, st.capo + Number(b.dataset.capo)));
+    else if (b.classList.contains('kb-reset')) {
+      st.tr = 0;
+      st.capo = data.capo;
+    } else if (b.classList.contains('kb-easy')) easiest();
+    update();
+  });
+
+  function easiest() {
+    let best = null;
+    for (let c = 0; c <= 9; c++) {
+      const sh = data.capo + st.tr - c;
+      let sum = 0;
+      for (const orig of data.chords) {
+        const name = T.transposeChord(orig, sh);
+        const v = st.inst === 'ukulele' ? voicingFor('ukulele', name) : sh === 0 && data.shapes[orig] ? voicingOf(orig) : T.voicings(name)[0];
+        sum += T.difficulty(v);
+      }
+      sum += c * 0.06;
+      if (!best || sum < best.sum - 0.01) best = { c, sum };
+    }
+    const was = st.capo;
+    st.capo = best.c;
+    if (best.c === was) {
+      kbNote.hidden = false;
+      kbNote.textContent = 'Проще уже некуда: это самый удобный вариант аккордов.';
+    }
+  }
+
+  // ---------- игра вместе ----------
+  const timeline = [];
+  const secStart = [];
+  let chipIdx = 0;
+  data.sections.forEach((s, si) => {
+    const first = chipIdx;
+    s.bars.forEach((b) => (chipIdx += b.length));
+    for (let r = 0; r < s.repeat; r++) {
+      if (r === 0) secStart[si] = timeline.length;
+      let c = first;
+      s.bars.forEach((b, bi) => {
+        let pos = 0;
+        timeline.push({
+          si,
+          bi,
+          r,
+          chords: b.map((ch) => {
+            const o = { orig: ch.name, slots: ch.slots, start: pos, chip: c++ };
+            pos += ch.slots;
+            return o;
+          }),
+        });
+      });
+    }
+  });
+  const flat = timeline.flatMap((bar, k) => bar.chords.map((c) => ({ ...c, bar: k })));
+
+  const pa = root.querySelector('.playalong');
+  pa.hidden = false;
+  const play = playButton(() => {
+    if (st.playing && st.mode === 'along') return stop();
+    if (st.playing) stop();
+    start(0, 'along');
+  });
+  play.setPlaying(false, 'Играть вместе');
+  const patSel = el(
+    'select',
+    { 'aria-label': 'Ритм' },
+    patternsFor(data.meter, data.slug).map((p) => el('option', { value: p.id, selected: p.id === st.pattern ? true : null }, p.name)),
+  );
+  patSel.addEventListener('change', () => {
+    st.pattern = patSel.value;
+    update();
+  });
+  const speed = slider({
+    label: 'Скорость',
+    min: 40,
+    max: 120,
+    step: 5,
+    value: Math.round(st.speed * 100),
+    fmt: (v) => `${v}% · ${Math.round((data.bpm * v) / 100)}`,
+    oninput: (v) => {
+      st.speed = v / 100;
+      store.set('song.' + data.slug, { tr: st.tr, capo: st.capo, pattern: st.pattern, speed: st.speed, sv: 2, pv: 1 });
+    },
+  });
+  const status = el('div', { class: 'pa-pos muted', 'aria-live': 'polite' }, 'Нажмите «Играть вместе» — после отсчёта начнётся песня.');
+  const instToggle = toggle(INSTRUMENTS[st.inst].name, st.guitar, (v) => (st.guitar = v));
+  const now = el('div', { class: 'pa-card pa-cur' });
+  const nxt = el('div', { class: 'pa-card pa-next' });
+  pa.append(
+    el(
+      'div',
+      { class: 'pa-ctl' },
+      play,
+      el('label', { class: 'ctl-select' }, el('span', { class: 'ctl-label' }, 'Ритм'), patSel),
+      speed.node,
+      el(
+        'div',
+        { class: 'tg-group' },
+        instToggle,
+        toggle('Барабаны', st.drums, (v) => {
+          st.drums = v;
+          store.set('drums', v);
+          if (v) loadDrums();
+        }),
+        toggle('Метроном', st.metro, (v) => (st.metro = v)),
+        toggle('Отсчёт', st.count, (v) => (st.count = v)),
+      ),
+    ),
+    el('div', { class: 'pa-now' }, now, nxt, status),
+  );
+
+  let curChord = null;
+  let nextChord = null;
+  function showNow(c, n) {
+    const card = (box, ch, label) => {
+      if (!ch) {
+        box.innerHTML = `<span class="pa-label">${label}</span><span class="pa-end">конец</span>`;
+        return;
+      }
+      const name = nameOf(ch.orig);
+      box.innerHTML = `<span class="pa-label">${label}</span><span class="pa-name">${name}</span>${smallDiagram(voicingOf(ch.orig), name)}`;
+    };
+    card(now, c, 'Сейчас');
+    card(nxt, n, 'Дальше');
+  }
+  showNow(flat[0], flat.find((c) => c.orig !== flat[0].orig));
+
+  // полная версия: гитара, укулеле, клавишные, бас и барабаны в выбранной тональности
+  const band = makeBand(data, { key: () => ({ tr: st.tr, capo: st.capo }), pattern: () => st.pattern });
+  const songPlay = document.querySelector('.song-play');
+  const partBtns = [...document.querySelectorAll('.band-row [data-part]')];
+  // порядок — как в оригинале (первый — ведущий), добавленные человеком — в конец
+  const rank = (x) => ((data.band || '').includes(x) ? data.band.indexOf(x) : 10 + PART_ORDER.indexOf(x));
+  const paintParts = () => partBtns.forEach((b) => b.setAttribute('aria-pressed', String(st.parts.includes(b.dataset.part))));
+  partBtns.forEach((b) =>
+    b.addEventListener('click', () => {
+      const p = b.dataset.part;
+      const on = st.parts.includes(p) ? st.parts.replace(p, '') : st.parts + p;
+      st.parts = [...on].sort((x, y) => rank(x) - rank(y)).join('');
+      saveParts(data, st.parts);
+      paintParts();
+      if (st.mode === 'full' && st.playing) preload(st.parts);
+    }),
+  );
+  paintParts();
+
+  const seq = new Seq({
+    total: timeline.length * M.slots,
+    ticksPerBeat: M.slotsPerBeat,
+    bpm: () => data.bpm * (st.mode === 'full' ? 1 : st.speed),
+    onTick: (t, time) => {
+      if (st.mode === 'full') return band.tick(t, time, st.parts, data.bpm);
+      if (st.counting) {
+        if (t >= st.from) st.counting = false;
+        else {
+          const k = t - (st.from - M.slots);
+          if (k % M.slotsPerBeat === 0) click(time, k === 0);
+          return;
+        }
+      }
+      const bar = timeline[Math.floor(t / M.slots)];
+      const pos = t % M.slots;
+      const ch = bar.chords.find((c) => pos >= c.start && pos < c.start + c.slots);
+      const p = PATTERNS[st.pattern];
+      const step = p.steps[pos];
+      let next = null;
+      if (step.includes('N')) {
+        const nb = timeline[Math.floor((t + 1) / M.slots)];
+        const nc = nb?.chords.find((c) => (t + 1) % M.slots >= c.start && (t + 1) % M.slots < c.start + c.slots);
+        if (nc) next = { v: sounding(voicingOf(nc.orig)), name: nameOf(nc.orig) };
+      }
+      const half = 30 / (data.bpm * st.speed) / M.slotsPerBeat;
+      if (st.guitar && ch) playStepOn(st.inst, step, sounding(voicingOf(ch.orig)), nameOf(ch.orig), time, { kind: p.kind, vel: pos === 0 ? 0.95 : 0.78, beat: pos % M.slotsPerBeat === 0, half, next });
+      if (st.metro && pos % M.slotsPerBeat === 0) click(time, pos === 0, st.guitar ? 0.45 : 0.8);
+      if (st.drums) {
+        const bi = Math.floor(t / M.slots);
+        const next = timeline[bi + 1];
+        const opts = { first: bar.bi === 0 && bar.r === 0 && bi > 0, last: !next || next.si !== bar.si };
+        for (const h of drumHits(styleFor(p.kind), data.meter, pos, M.slots, opts)) drum(h, time, pos % M.slotsPerBeat === 0 ? 0.9 : 0.62);
+      }
+    },
+    onVisual: (t) => {
+      if (t < st.from) {
+        const k = Math.floor((t - (st.from - M.slots)) / M.slotsPerBeat) + 1;
+        status.textContent = `Отсчёт: ${k}…`;
+        return;
+      }
+      const bi = Math.floor(t / M.slots);
+      const bar = timeline[bi];
+      const pos = t % M.slots;
+      st.lastTick = t;
+      st.lastBar = bi;
+      const k = bar.chords.findIndex((c) => pos >= c.start && pos < c.start + c.slots);
+      const ch = bar.chords[k];
+      const sec = data.sections[bar.si];
+      status.textContent = `${sec.name}${sec.repeat > 1 ? ` (${bar.r + 1}-й раз из ${sec.repeat})` : ''} · такт ${bar.bi + 1} из ${sec.bars.length}`;
+      if (ch && ch !== curChord?.ref) {
+        const fi = flat.findIndex((f) => f.bar === bi && f.start === ch.start);
+        curChord = { ...flat[fi], ref: ch };
+        nextChord = flat.slice(fi + 1).find((f) => f.orig !== ch.orig) || null;
+        showNow(curChord, nextChord);
+        chips.forEach((c) => c.classList.remove('on'));
+        const chip = chips[ch.chip];
+        chip.classList.add('on');
+        const r = chip.getBoundingClientRect();
+        const paBottom = pa.getBoundingClientRect().bottom;
+        // за аккордами листаем только в «Играть вместе»: под полную версию человек может читать что угодно
+        if (st.mode === 'along' && (r.top < paBottom + 8 || r.bottom > innerHeight - 8) && mayAutoScroll()) chip.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    },
+    onEnd: () => stop(false),
+  });
+
+  const secOf = (bi) => {
+    let k = 0;
+    secStart.forEach((b, i) => {
+      if (b <= bi) k = i;
+    });
+    return k;
+  };
+  const api = {
+    title: data.title,
+    sub: `${data.artist} · играть вместе`,
+    slug: data.slug,
+    el: root,
+    stop: () => stop(),
+    resume: () => start(st.lastBar || 0, st.mode),
+    prev: () => {
+      const k = secOf(st.lastBar || 0);
+      const mode = st.mode;
+      if (st.playing) stop();
+      start(secStart[Math.max(0, k - 1)], mode);
+    },
+    next: () => {
+      const k = secOf(st.lastBar || 0);
+      const mode = st.mode;
+      if (st.playing) stop();
+      start(secStart[Math.min(secStart.length - 1, k + 1)], mode);
+    },
+    progress: () => Math.max(0, Math.min(1, (st.lastTick || 0) / (timeline.length * M.slots))),
+  };
+  // «Играть» в шапке: полная версия с того места, где остановились (после конца — сначала)
+  songPlay?.addEventListener('click', () => {
+    if (st.playing && st.mode === 'full') return stop();
+    const from = st.mode === 'full' && st.lastBar && st.lastBar < timeline.length - 1 ? st.lastBar : 0;
+    if (st.playing) stop();
+    start(from, 'full');
+  });
+  const paintSongPlay = (on) => {
+    if (!songPlay) return;
+    songPlay.innerHTML = `${on ? STOP_ICON : PLAY_ICON}<span>${on ? 'Пауза' : 'Играть'}</span>`;
+    songPlay.classList.toggle('on', on);
+  };
+  function start(fromBar, mode = 'along') {
+    st.mode = mode;
+    const full = mode === 'full';
+    if (full) preload(st.parts);
+    else if (st.drums) loadDrums();
+    st.lastBar = fromBar;
+    st.lastTick = fromBar * M.slots;
+    api.sub = `${data.artist} · ${full ? 'полная версия' : 'играть вместе'}`;
+    claim(api);
+    audio();
+    st.from = fromBar * M.slots;
+    st.counting = !full && st.count;
+    st.playing = true;
+    curChord = null;
+    play.setPlaying(!full, 'Играть вместе');
+    paintSongPlay(full);
+    root.classList.add('playing');
+    seq.start(st.counting ? st.from - M.slots : st.from);
+  }
+  function stop(silence = true) {
+    if (!st.playing) return;
+    st.playing = false;
+    seq.stop(!silence);
+    if (silence) {
+      hush();
+      pianoHush();
+    }
+    play.setPlaying(false, 'Играть вместе');
+    paintSongPlay(false);
+    root.classList.remove('playing');
+    chips.forEach((c) => c.classList.remove('on'));
+    status.textContent = silence ? 'Пауза. «Играть вместе» — сначала, ▶ у части — с неё.' : 'Готово! Ещё раз?';
+    if (!silence) st.lastBar = 0;
+    release(api);
+  }
+
+  // запуск с нужной части
+  root.querySelectorAll('.sec h3').forEach((h, si) => {
+    const b = el('button', { type: 'button', class: 'sec-play', 'aria-label': `Играть с части «${data.sections[si].name}»`, title: 'Играть с этого места', html: '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>' });
+    b.addEventListener('click', () => {
+      if (st.playing) stop();
+      start(secStart[si], 'along');
+    });
+    h.append(b);
+  });
+
+  // аккорд в листе: при наведении — схема, по нажатию — звучит
+  chordTip(root.querySelector('.sheet'), '.ch', (chip) => {
+    const name = nameOf(chip.dataset.o);
+    return `<b class="ct-name">${name}</b>${smallDiagram(voicingOf(chip.dataset.o), name)}`;
+  });
+  root.querySelector('.sheet').addEventListener('click', (e) => {
+    const chip = e.target.closest('.ch');
+    if (!chip || st.playing) return;
+    const v = sounding(voicingOf(chip.dataset.o));
+    if (v) {
+      audio();
+      playChordOn(st.inst, v);
+    }
+  });
+
+  update();
+}

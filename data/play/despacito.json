@@ -1,0 +1,1 @@
+{"slug":"despacito","title":"Despacito","artist":"Luis Fonsi","key":"Bm","capo":2,"bpm":89,"meter":"4/4","pattern":"tsoy","shapes":{"F":"xx3211 003211"},"sections":[{"name":"Вся песня","repeat":8,"bars":[[{"name":"Am","slots":8}],[{"name":"F","slots":8}],[{"name":"C","slots":8}],[{"name":"G","slots":8}]]}],"chords":["Am","F","C","G"],"band":"gbd"}
