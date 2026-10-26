@@ -176,6 +176,46 @@ for (const ev of ['wheel', 'touchmove', 'keydown', 'mousedown']) {
 // Автопрокрутка не спорит с человеком: если он сам крутил страницу последние 3 секунды — не трогаем.
 export const mayAutoScroll = () => Date.now() - lastUserScroll > 3000;
 
+// схема аккорда над названием: мышью — при наведении, пальцем — по нажатию (на 2,5 с).
+// render(элемент) возвращает html схемы или пустую строку
+let tipBox = null;
+let tipTimer = 0;
+export function chordTip(container, selector, render) {
+  const hide = () => {
+    clearTimeout(tipTimer);
+    if (tipBox) tipBox.hidden = true;
+  };
+  const show = (target) => {
+    const html = render(target);
+    if (!html) return hide();
+    tipBox ??= document.body.appendChild(el('div', { class: 'chord-tip', role: 'tooltip' }));
+    tipBox.innerHTML = html;
+    tipBox.hidden = false;
+    const r = target.getBoundingClientRect();
+    const w = tipBox.offsetWidth;
+    const h = tipBox.offsetHeight;
+    const x = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+    const y = r.top - h - 8 > 8 ? r.top - h - 8 : r.bottom + 8;
+    tipBox.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+  };
+  container.addEventListener('pointerover', (e) => {
+    const t = e.target.closest(selector);
+    if (t && e.pointerType === 'mouse') show(t);
+  });
+  container.addEventListener('pointerout', (e) => {
+    const t = e.target.closest(selector);
+    if (t && e.pointerType === 'mouse' && !t.contains(e.relatedTarget)) hide();
+  });
+  container.addEventListener('click', (e) => {
+    const t = e.target.closest(selector);
+    if (!t || matchMedia('(hover: hover)').matches) return;
+    show(t);
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(hide, 2500);
+  });
+  addEventListener('scroll', hide, { passive: true });
+}
+
 export function inView(node) {
   const r = node.getBoundingClientRect();
   return r.bottom > 0 && r.top < innerHeight;
@@ -208,7 +248,16 @@ export function playChordOn(inst, v, when, dir = 'D', vel = 0.85) {
 }
 
 // Одна доля ритма песни на выбранном инструменте.
-export function playStepOn(inst, step, v, name, when, { vel = 0.8, kind = 'strum', beat = false } = {}) {
+// half — длина шестнадцатой в секундах (для шагов «2,B»), next — { v, name } следующего аккорда (для N)
+export function playStepOn(inst, step, v, name, when, opts = {}) {
+  const { vel = 0.8, kind = 'strum', beat = false, half = 0.09, next = null } = opts;
+  if (step.includes(',')) {
+    const [a, b] = step.split(',');
+    playStepOn(inst, a, v, name, when, opts);
+    if (b) playStepOn(inst, b, v, name, when + half, { ...opts, beat: false });
+    return;
+  }
+  if (step === 'N') return playStepOn(inst, 'B', next?.v || v, next?.name || name, when, { ...opts, vel: vel * 0.95 });
   if (!inst || inst === 'guitar') return playStep(step, v, name, when, { vel, kind });
   if (!v || step === '.') return;
   if (inst === 'bass') {

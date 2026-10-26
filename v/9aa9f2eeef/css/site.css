@@ -2188,11 +2188,15 @@ select {
   margin: 14px 0;
 }
 .tn-strings {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  display: flex;
+  justify-content: center;
   gap: 8px;
-  max-width: 460px;
+  max-width: 540px;
   margin: 0 auto 8px;
+}
+.tn-strings .tn-str {
+  flex: 0 1 68px;
+  min-width: 0;
 }
 .tn-str {
   display: flex;
@@ -4068,4 +4072,88 @@ summary a > svg,
 }
 .photo-card .pc-txt b {
   color: var(--ink);
+}
+
+/* ---------- схема аккорда при наведении (w/util.js chordTip) ---------- */
+.chord-tip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 90;
+  padding: 8px 10px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--surface);
+  box-shadow: 0 16px 36px -16px rgb(0 0 0 / 0.6);
+  text-align: center;
+  pointer-events: none;
+}
+.chord-tip svg {
+  display: block;
+  width: 104px;
+  height: auto;
+  margin: 0 auto;
+}
+.chord-tip .ct-name {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--ink);
+  font: 700 15px var(--mono);
+}
+.chord-tip .chord {
+  width: 104px;
+  margin: 0;
+}
+.chord-tip .chord-piano,
+.chord-tip .chord-piano svg {
+  width: 150px;
+}
+.sheet .ch,
+.sb-c[data-c] {
+  cursor: pointer;
+}
+
+/* ---------- тюнер: выбор инструмента и строя, таблица строев ---------- */
+.tn-pick {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 16px;
+  margin-bottom: 16px;
+}
+.tn-pick .ctl-label {
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 600;
+}
+.tn-pick select {
+  max-width: 280px;
+}
+.tn-note small {
+  white-space: normal;
+}
+.tn-strings[hidden] {
+  display: none;
+}
+.tn-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+.tn-table th,
+.tn-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.tn-table th {
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 600;
+}
+.tn-table td:first-child {
+  color: var(--ink);
+  font-weight: 600;
+  white-space: nowrap;
 }

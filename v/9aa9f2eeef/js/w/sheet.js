@@ -9,7 +9,7 @@ import { keyboardSVG } from '../lib/keyboard.js';
 import { METERS, PATTERNS, patternsFor } from '../lib/patterns.js';
 import * as T from '../lib/theory.js';
 import { pianoHush } from '../piano.js';
-import { claim, el, mayAutoScroll, playButton, playChordOn, playStepOn, release, slider, store, toggle } from './util.js';
+import { chordTip, claim, el, mayAutoScroll, playButton, playChordOn, playStepOn, release, slider, store, toggle } from './util.js';
 
 export function init() {
   const root = document.querySelector('.songsheet');
@@ -25,7 +25,8 @@ function setup(root) {
   const st = {
     tr: saved.tr || 0,
     capo: saved.capo ?? data.capo,
-    pattern: saved.pattern && PATTERNS[saved.pattern]?.meter === data.meter ? saved.pattern : data.pattern,
+    // выбор ритма помним с pv: 1 — старые сохранения (до своих рисунков песен) не перебивают ритм песни
+    pattern: saved.pv && saved.pattern && PATTERNS[saved.pattern]?.meter === data.meter && (!PATTERNS[saved.pattern].own || PATTERNS[saved.pattern].own === data.slug) ? saved.pattern : data.pattern,
     speed: saved.sv === 2 && saved.speed ? saved.speed : 1,
     guitar: true,
     inst: INSTRUMENTS[new URLSearchParams(location.search).get('inst')] ? new URLSearchParams(location.search).get('inst') : store.get('instrument', 'guitar'),
@@ -118,7 +119,7 @@ function setup(root) {
       card.querySelector('.chord-cap').innerHTML = shift() === 0 ? capOrig[i] : fretsText(v);
     });
     chips.forEach((c) => (c.textContent = nameOf(c.dataset.o)));
-    store.set('song.' + data.slug, { tr: st.tr, capo: st.capo, pattern: st.pattern, speed: st.speed, sv: 2 });
+    store.set('song.' + data.slug, { tr: st.tr, capo: st.capo, pattern: st.pattern, speed: st.speed, sv: 2, pv: 1 });
     // остальные вкладки песни (текст с аккордами, вокал) берут тональность отсюда
     window.__songKey = { shift: shift(), flats: flats(), tr: st.tr, capo: capoNow(), capoSet: st.capo, inst: st.inst, key: soundKey(), fretted: fretted() };
     dispatchEvent(new CustomEvent('song:key', { detail: window.__songKey }));
@@ -202,7 +203,7 @@ function setup(root) {
   const patSel = el(
     'select',
     { 'aria-label': 'Ритм' },
-    patternsFor(data.meter).map((p) => el('option', { value: p.id, selected: p.id === st.pattern ? true : null }, p.name)),
+    patternsFor(data.meter, data.slug).map((p) => el('option', { value: p.id, selected: p.id === st.pattern ? true : null }, p.name)),
   );
   patSel.addEventListener('change', () => {
     st.pattern = patSel.value;
@@ -217,7 +218,7 @@ function setup(root) {
     fmt: (v) => `${v}% · ${Math.round((data.bpm * v) / 100)}`,
     oninput: (v) => {
       st.speed = v / 100;
-      store.set('song.' + data.slug, { tr: st.tr, capo: st.capo, pattern: st.pattern, speed: st.speed, sv: 2 });
+      store.set('song.' + data.slug, { tr: st.tr, capo: st.capo, pattern: st.pattern, speed: st.speed, sv: 2, pv: 1 });
     },
   });
   const status = el('div', { class: 'pa-pos muted', 'aria-live': 'polite' }, 'Нажмите «Играть вместе» — после отсчёта начнётся песня.');
@@ -280,7 +281,15 @@ function setup(root) {
       const pos = t % M.slots;
       const ch = bar.chords.find((c) => pos >= c.start && pos < c.start + c.slots);
       const p = PATTERNS[st.pattern];
-      if (st.guitar && ch) playStepOn(st.inst, p.steps[pos], voicingOf(ch.orig), nameOf(ch.orig), time, { kind: p.kind, vel: pos === 0 ? 0.95 : 0.78, beat: pos % M.slotsPerBeat === 0 });
+      const step = p.steps[pos];
+      let next = null;
+      if (step.includes('N')) {
+        const nb = timeline[Math.floor((t + 1) / M.slots)];
+        const nc = nb?.chords.find((c) => (t + 1) % M.slots >= c.start && (t + 1) % M.slots < c.start + c.slots);
+        if (nc) next = { v: voicingOf(nc.orig), name: nameOf(nc.orig) };
+      }
+      const half = 30 / (data.bpm * st.speed) / M.slotsPerBeat;
+      if (st.guitar && ch) playStepOn(st.inst, step, voicingOf(ch.orig), nameOf(ch.orig), time, { kind: p.kind, vel: pos === 0 ? 0.95 : 0.78, beat: pos % M.slotsPerBeat === 0, half, next });
       if (st.metro && pos % M.slotsPerBeat === 0) click(time, pos === 0, st.guitar ? 0.45 : 0.8);
       if (st.drums) {
         const bi = Math.floor(t / M.slots);
@@ -389,7 +398,11 @@ function setup(root) {
     h.append(b);
   });
 
-  // аккорд в листе — по нажатию звучит
+  // аккорд в листе: при наведении — схема, по нажатию — звучит
+  chordTip(root.querySelector('.sheet'), '.ch', (chip) => {
+    const name = nameOf(chip.dataset.o);
+    return `<b class="ct-name">${name}</b>${smallDiagram(voicingOf(chip.dataset.o), name)}`;
+  });
   root.querySelector('.sheet').addEventListener('click', (e) => {
     const chip = e.target.closest('.ch');
     if (!chip || st.playing) return;

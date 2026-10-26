@@ -7,7 +7,7 @@ import { hasChords, placeChords, textHTML } from '../lib/chordpro.js';
 import { icon } from '../lib/icons.js';
 import { voicingFor } from '../lib/instruments.js';
 import * as T from '../lib/theory.js';
-import { store } from './util.js';
+import { chordTip, store } from './util.js';
 
 export function init() {
   const root = document.querySelector('.songbook');
@@ -49,6 +49,8 @@ function setup(root) {
     key = e.detail;
     paint();
   });
+  // схема аккорда над словами — при наведении (и по нажатию на телефоне)
+  chordTip(root, '.sb-c[data-c]', (b) => instChordCard(key.inst, nameOf(b.dataset.c), voicingOf(b.dataset.c)));
   root.querySelector('.sb-ctl').addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;

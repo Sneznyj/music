@@ -52,6 +52,14 @@ function setup(root) {
   const shiftNow = () => (data.capo || 0) + (key.tr || 0);
   const flatsNow = () => T.keyUsesFlats(key.key || data.key);
   const soundName = (orig) => (shiftNow() ? T.transposeChord(orig, shiftNow(), flatsNow()) : orig);
+  // свои формы песни (например, «врозь» у Shape of My Heart) — пока тональность не сдвинута
+  const voicingOf = (orig) => {
+    if (!shiftNow() && data.shapes?.[orig]) {
+      const [f, fi] = data.shapes[orig].split(' ');
+      return T.voicingFromString(f, fi);
+    }
+    return T.voicings(soundName(orig))[0];
+  };
   const altPos = data.meter === '6/8' ? 3 : 4;
   const st = { speed: store.get('vocalSpeed', 1), guitar: true, bass: true, drums: true, metro: false };
   const style = styleFor(pat.kind);
@@ -106,8 +114,11 @@ function setup(root) {
     if (rec) rec.tl.push({ t: time - rec.t0, i: tick - countIn });
     const name = soundName(it.orig);
     if (st.guitar) {
-      const v = T.voicings(name)[0];
-      playStepOn('guitar', pat.steps[it.pos % pat.steps.length], v, name, time, { kind: pat.kind, vel: it.pos === 0 ? 0.8 : 0.66, beat: it.pos % M.slotsPerBeat === 0 });
+      const v = voicingOf(it.orig);
+      const nx = flat[tick - countIn + 1];
+      const next = nx ? { v: voicingOf(nx.orig), name: soundName(nx.orig) } : null;
+      const half = 30 / (data.bpm * st.speed) / M.slotsPerBeat;
+      playStepOn('guitar', pat.steps[it.pos % pat.steps.length], v, name, time, { kind: pat.kind, vel: it.pos === 0 ? 0.8 : 0.66, beat: it.pos % M.slotsPerBeat === 0, half, next });
     }
     if (st.bass && (it.pos === 0 || it.first || it.pos === altPos)) {
       const c = T.parseChord(name);
