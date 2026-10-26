@@ -3411,6 +3411,15 @@ select {
   gap: 10px;
   flex-wrap: wrap;
 }
+.sb-sync {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink-3);
+}
+.sb-sync.off {
+  color: var(--warm);
+}
 .songbook:fullscreen,
 .songbook.sb-max {
   background: var(--bg);

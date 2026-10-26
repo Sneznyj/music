@@ -1,6 +1,7 @@
 // Вкладка «Текст и аккорды»: аккорды над словами (или по строкам), шрифт крупнее/мельче, автопрокрутка с
 // регулируемой скоростью, тональность и каподастр (общие со вкладкой «Аккорды»), схемы аккордов выбранного
-// инструмента и «Свой текст» — его человек вставляет сам, хранится только в его браузере.
+// инструмента и «Свой текст» — его человек вставляет сам, хранится только в его браузере. На привязанных
+// устройствах Павла (ключ из ссылки #mytexts=…) текст ещё и уходит в «Мои тексты» (worker/mytexts) и виден везде.
 import { instChordCard } from '../lib/cards.js';
 import { hasChords, placeChords, textHTML } from '../lib/chordpro.js';
 import { icon } from '../lib/icons.js';
@@ -132,20 +133,59 @@ function setup(root) {
   if (own) {
     const input = own.querySelector('.sb-own-in');
     const keyName = 'text.' + slug;
+    const dirtyName = 'textDirty.' + slug;
+    const cloud = myTexts(slug);
+    let sync = '';
     const show = (text) => {
       const has = !!text.trim();
-      ownView.innerHTML = has ? `<div class="sb-h">Ваш текст</div>${textHTML(text)}` : '';
+      const note = sync ? `<span class="sb-sync${sync === 'off' ? ' off' : ''}">${SYNC[sync]}</span>` : '';
+      ownView.innerHTML = has ? `<div class="sb-h">Ваш текст${note}</div>${textHTML(text)}` : '';
       ownView.hidden = !has;
       body.hidden = has;
       own.querySelector('.sb-own-del').hidden = !has;
       paint();
     };
+    const setSync = (s) => {
+      sync = s;
+      show(input.value);
+    };
+    // в «Мои тексты»: не вышло (нет сети) — помним и отправим при следующем открытии песни
+    const push = (text) => {
+      if (!cloud) return;
+      store.set(dirtyName, true);
+      setSync('saving');
+      cloud
+        .put(text)
+        .then(() => {
+          store.set(dirtyName, false);
+          setSync('ok');
+        })
+        .catch(() => setSync('off'));
+    };
     const saved = store.get(keyName, '');
     input.value = saved;
     show(saved);
     if (saved) own.open = false;
+    if (cloud) {
+      own.querySelector('.sb-own-where').textContent = 'Текст сохраняется в ваших «Моих текстах» и виден на всех ваших устройствах';
+      if (store.get(dirtyName, false)) push(input.value); // прошлая правка не дошла — отправляем её
+      else
+        cloud
+          .get()
+          .then((r) => {
+            if (r.text && r.text !== input.value) {
+              // поменяли на другом устройстве — берём оттуда
+              store.set(keyName, r.text);
+              input.value = r.text;
+              own.open = false;
+              setSync('ok');
+            } else if (!r.text && input.value.trim()) push(input.value); // вставили до привязки устройства
+            else if (r.text) setSync('ok');
+          })
+          .catch(() => setSync('off'));
+    }
     const hint = own.querySelector('.sb-own-hint');
-    own.querySelector('.sb-own-save').addEventListener('click', () => {
+    const save = () => {
       // вставили только слова — расставляем аккорды песни по частям (примерно; можно поправить в тексте)
       if (input.value.trim() && !hasChords(input.value)) {
         const blocks = [];
@@ -155,14 +195,51 @@ function setup(root) {
       }
       store.set(keyName, input.value);
       show(input.value);
+      push(input.value);
       own.open = false;
       ownView.scrollIntoView({ block: 'start', behavior: 'smooth' });
-    });
+    };
+    own.querySelector('.sb-own-save').addEventListener('click', save);
+    // «Вставить из буфера»: скопировали слова на другом сайте — одно нажатие, и они уже с аккордами
+    const pasteBtn = own.querySelector('.sb-own-paste');
+    if (pasteBtn && navigator.clipboard?.readText) {
+      pasteBtn.hidden = false;
+      pasteBtn.addEventListener('click', async () => {
+        try {
+          const text = await navigator.clipboard.readText();
+          if (!text.trim()) return input.focus();
+          input.value = text;
+          save();
+        } catch {
+          input.focus();
+        }
+      });
+    }
     own.querySelector('.sb-own-del').addEventListener('click', () => {
       store.set(keyName, '');
       input.value = '';
       show('');
+      push('');
     });
   }
   paint();
+}
+
+const SYNC = {
+  saving: ' · сохраняю в «Мои тексты»…',
+  ok: ' · в «Моих текстах», виден на всех ваших устройствах',
+  off: ' · нет связи с «Моими текстами», сохранён только здесь',
+};
+
+// личное хранилище слов песен; есть только на устройствах, привязанных ссылкой #mytexts=…
+function myTexts(slug) {
+  const key = store.get('mytexts', '');
+  if (!key) return null;
+  const url = `https://mytexts.sneznyj.com/texts/${slug}`;
+  const call = async (opts = {}) => {
+    const r = await fetch(url, { ...opts, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } });
+    if (!r.ok) throw new Error(`mytexts ${r.status}`);
+    return r.json();
+  };
+  return { get: () => call(), put: (text) => call({ method: 'PUT', body: JSON.stringify({ text }) }) };
 }

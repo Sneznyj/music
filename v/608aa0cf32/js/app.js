@@ -1,6 +1,13 @@
 // Точка входа: оживляет блоки, которые есть на странице. Каждый блок грузится, только если он нужен.
 import { audio, prefetch, setGuitarVoice, voiceOf } from './audio.js';
-import { playChordOn, voicingFromBtn } from './w/util.js';
+import { playChordOn, store, voicingFromBtn } from './w/util.js';
+
+// «Мои тексты»: ссылка …/#mytexts=<ключ> привязывает устройство к личному хранилищу слов песен (#mytexts=off — отвязать)
+const linkKey = location.hash.match(/^#mytexts=([A-Za-z0-9_-]{20,}|off)$/)?.[1];
+if (linkKey) {
+  store.set('mytexts', linkKey === 'off' ? '' : linkKey);
+  history.replaceState(null, '', location.pathname + location.search);
+}
 
 // любая схема аккорда звучит по нажатию: гитара, укулеле, бас или фортепиано
 document.addEventListener('click', (e) => {
