@@ -3675,3 +3675,24 @@ select {
     display: none;
   }
 }
+
+/* ---------- источник видео: YouTube или VK Видео ---------- */
+.src-vk {
+  display: none;
+}
+body[data-vsrc='vk'] .src-yt {
+  display: none;
+}
+body[data-vsrc='vk'] .src-vk {
+  display: flex;
+}
+.vsrc {
+  margin-top: 10px;
+}
+.vsrc button {
+  padding: 4px 12px;
+  font-size: 13px;
+}
+.vk .yt-play {
+  background: rgb(0 119 255 / 0.94);
+}

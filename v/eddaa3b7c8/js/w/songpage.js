@@ -61,12 +61,19 @@ export function init() {
   // язык видеоразборов
   const langBtns = [...document.querySelectorAll('.vid-lang button')];
   const vids = [...document.querySelectorAll('.vids')];
-  const lang = (l) => {
+  const lang = (l, save = true) => {
     if (!vids.some((v) => v.dataset.lang === l)) return;
     langBtns.forEach((b) => b.classList.toggle('on', b.dataset.lang === l));
     vids.forEach((v) => (v.hidden = v.dataset.lang !== l));
-    store.set('vidLang', l);
+    if (save) store.set('vidLang', l);
   };
   langBtns.forEach((b) => b.addEventListener('click', () => lang(b.dataset.lang)));
-  lang(store.get('vidLang', langBtns[0]?.dataset.lang));
+  const saved = store.get('vidLang', langBtns[0]?.dataset.lang);
+  lang(saved === 'vk' && document.body.dataset.vsrc !== 'vk' ? langBtns[0]?.dataset.lang : saved, false);
+  // смотрим VK (YouTube не открывается или так выбрали) — разборы тоже с VK
+  addEventListener('vsrc:change', (e) => {
+    if (e.detail === 'vk') lang('vk', false);
+    else if (vids.find((v) => !v.hidden)?.dataset.lang === 'vk') lang(langBtns[0]?.dataset.lang, false);
+  });
+  if (document.body.dataset.vsrc === 'vk') lang('vk', false);
 }
