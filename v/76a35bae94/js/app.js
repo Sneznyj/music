@@ -45,6 +45,21 @@ for (const [sel, load] of blocks) {
   if (document.querySelector(sel)) load().then((m) => m.init()).catch((err) => console.error(sel, err));
 }
 
+// тема: светлая (кремовая) или тёмная, кнопка в шапке
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.theme-btn')) return;
+  const light = document.documentElement.dataset.theme !== 'light';
+  if (light) document.documentElement.dataset.theme = 'light';
+  else delete document.documentElement.dataset.theme;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', light ? '#f7f3ec' : '#080c14');
+  try {
+    localStorage.setItem('gitara.theme', JSON.stringify(light ? 'light' : 'dark'));
+  } catch {
+    /* нет хранилища */
+  }
+});
+if (document.documentElement.dataset.theme === 'light') document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#f7f3ec');
+
 // звук гитары: акустика или классика; у песни может быть свой (Shape of My Heart — классика), пока человек не выбрал сам
 let chosen = null;
 try {

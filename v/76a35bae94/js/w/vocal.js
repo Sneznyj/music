@@ -1,12 +1,14 @@
 // Вкладка «Вокал» на странице песни: минус из аккордов песни (гитара и бас в выбранной тональности и темпе),
 // запись голоса под него, «ваша нота» во время пения, прослушивание с минусом, скачивание WAV
 // и передача записи в Студию (/vocal/studio/), где «Сделать красиво» подтянет ноты и добавит обработку.
+// После записи — разбор голоса (voicereport.js): тембр, диапазон, точность по аккордам песни.
 import { Seq, audio, click, drum, hush, loadDrums, note, outStream } from '../audio.js';
 import { drumHits, styleFor } from '../lib/drums.js';
 import { icon } from '../lib/icons.js';
 import { METERS, PATTERNS } from '../lib/patterns.js';
 import * as T from '../lib/theory.js';
 import { yin } from './tuner.js';
+import { voiceReport } from './voicereport.js';
 import { claim, el, playStepOn, release, slider, store, toggle } from './util.js';
 
 export function init() {
@@ -100,6 +102,8 @@ function setup(root) {
     }
     const it = flat[tick - countIn];
     if (!it) return;
+    // для разбора голоса: когда какой аккорд звучал (по часам записи)
+    if (rec) rec.tl.push({ t: time - rec.t0, i: tick - countIn });
     const name = soundName(it.orig);
     if (st.guitar) {
       const v = T.voicings(name)[0];
@@ -159,6 +163,8 @@ function setup(root) {
   const meter = el('div', { class: 'vt-meter' }, el('i'));
   const pitchOut = el('div', { class: 'vt-pitch muted' }, 'Здесь будет ваша нота: в аккорде она или нет.');
   const result = el('div', { class: 'vt-result', hidden: true });
+  const report = el('section', { class: 'vt-report', hidden: true });
+  root.querySelector('.vt-grid').after(report);
   const hint = el('p', { class: 'muted small' }, 'Наденьте наушники: тогда в запись попадёт только голос. Запись остаётся у вас — на сервер она не уходит.');
   recBox.replaceChildren(recBtn, meter, pitchOut, result, hint);
 
@@ -183,14 +189,16 @@ function setup(root) {
     const an = ctx.createAnalyser();
     an.fftSize = 2048;
     src.connect(an);
-    rec = { stream, voiceRec, backRec, chunks, an, type, raf: 0 };
+    rec = { stream, voiceRec, backRec, chunks, an, type, raf: 0, t0: 0, tl: [] };
     voiceRec.start();
     backRec.start();
+    rec.t0 = ctx.currentTime;
     curIdx = 0;
     start(true);
     recBtn.innerHTML = `${STOP}<span>Остановить запись</span>`;
     recBtn.classList.add('on');
     result.hidden = true;
+    report.hidden = true;
     const buf = new Float32Array(an.fftSize);
     const loop = () => {
       if (!rec) return;
@@ -225,30 +233,51 @@ function setup(root) {
     r.stream.getTracks().forEach((t) => t.stop());
     if (seq?.running) stopAll();
     const ctx = audio();
+    const lat = latency();
+    const take = {
+      key: key.key || data.key,
+      flats: flatsNow(),
+      slug: data.slug,
+      lat,
+      // время аккорда — по часам голоса: голос приходит позже минуса на задержку звуковой карты
+      timeline: r.tl.map(({ t, i }) => ({ t: t + lat / 1000, chord: soundName(flat[i].orig), sec: data.sections[flat[i].sec].name })),
+    };
     try {
       const [voice, back] = await Promise.all([new Blob(r.chunks.v, { type: r.type }), new Blob(r.chunks.b, { type: r.type })].map(async (b) => ctx.decodeAudioData(await b.arrayBuffer())));
-      showResult(voice, back);
+      showResult(voice, back, take);
     } catch {
       pitchOut.textContent = 'Не получилось прочитать запись. Попробуйте ещё раз или в другом браузере.';
     }
   }
   recBtn.addEventListener('click', () => (rec ? stopRec() : startRec()));
 
-  // ---------- прослушать, скачать, в Студию ----------
-  function showResult(voice, back) {
+  // голос приходит позже минуса на задержку звуковой карты: туда и обратно
+  function latency() {
     const ctx = audio();
-    // голос приходит позже минуса на задержку звуковой карты: туда и обратно
-    const lat = Math.round(((ctx.outputLatency || 0.03) + (ctx.baseLatency || 0.01) + 0.015) * 1000);
-    const mix = { voice: 1, back: 0.7, shift: lat };
+    return Math.round(((ctx.outputLatency || 0.03) + (ctx.baseLatency || 0.01) + 0.015) * 1000);
+  }
+
+  // ---------- прослушать, скачать, в Студию, разбор голоса ----------
+  let stopPrev = null;
+  function showResult(voice, back, take) {
+    const ctx = audio();
+    stopPrev?.();
+    const mix = { voice: 1, back: 0.7, shift: take.lat };
     let srcs = [];
+    let raf = 0;
+    let rep = null;
     const playBtn2 = el('button', { type: 'button', class: 'btn btn-play', html: `${PLAY}<span>Послушать</span>` });
     const stopPlay = () => {
       srcs.forEach((s) => s.stop());
       srcs = [];
+      cancelAnimationFrame(raf);
+      rep?.head(null);
       playBtn2.innerHTML = `${PLAY}<span>Послушать</span>`;
     };
-    playBtn2.addEventListener('click', () => {
-      if (srcs.length) return stopPlay();
+    stopPrev = stopPlay;
+    // from — секунда записи голоса; минус идёт раньше голоса на shift
+    const play = (from = 0) => {
+      stopPlay();
       const t = ctx.currentTime + 0.05;
       const g1 = ctx.createGain();
       g1.gain.value = mix.voice;
@@ -260,16 +289,23 @@ function setup(root) {
       const b = ctx.createBufferSource();
       b.buffer = back;
       b.connect(g2).connect(ctx.destination);
-      const sh = mix.shift / 1000;
-      a.start(t, Math.max(0, sh));
-      b.start(t, Math.max(0, -sh));
-      a.onended = stopPlay;
+      const bOff = from - mix.shift / 1000;
+      a.start(t, from);
+      if (bOff >= 0) b.start(t, bOff);
+      else b.start(t - bOff, 0);
+      a.onended = () => srcs[0] === a && stopPlay();
       srcs = [a, b];
       playBtn2.innerHTML = `${STOP}<span>Стоп</span>`;
-    });
+      const frame = () => {
+        rep?.head(from + ctx.currentTime - t);
+        raf = requestAnimationFrame(frame);
+      };
+      frame();
+    };
+    playBtn2.addEventListener('click', () => (srcs.length ? stopPlay() : play(Math.max(0, mix.shift / 1000))));
     const sv = slider({ label: 'Голос', min: 0, max: 150, value: 100, fmt: (v) => `${v} %`, oninput: (v) => (mix.voice = v / 100) });
     const sb = slider({ label: 'Минус', min: 0, max: 100, value: 70, fmt: (v) => `${v} %`, oninput: (v) => (mix.back = v / 100) });
-    const ss = slider({ label: 'Голос раньше на', min: -200, max: 400, step: 5, value: lat, fmt: (v) => `${v} мс`, oninput: (v) => (mix.shift = v) });
+    const ss = slider({ label: 'Голос раньше на', min: -200, max: 400, step: 5, value: take.lat, fmt: (v) => `${v} мс`, oninput: (v) => (mix.shift = v) });
     const dl = el('button', { type: 'button', class: 'btn btn-ghost', html: `${icon('download')}<span>Скачать WAV</span>` });
     dl.addEventListener('click', async () => {
       const blob = await renderMix(voice, back, mix);
@@ -287,6 +323,11 @@ function setup(root) {
     });
     result.replaceChildren(el('h4', {}, 'Ваша запись'), el('div', { class: 'vt-row' }, playBtn2, dl, toStudio), sv.node, sb.node, ss.node);
     result.hidden = false;
+    voiceReport(report, voice, take, { play })
+      .then((x) => (rep = x))
+      .catch(() => {
+        report.hidden = true;
+      });
   }
 }
 

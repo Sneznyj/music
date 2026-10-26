@@ -139,3 +139,78 @@
     overflow-x: clip;
   }
 }
+
+/* ---------- светлая тема на страницах Студии: её переменные и меню слева ---------- */
+.sm-theme {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin: 10px 10px 0;
+  border: 1px solid #2a3852;
+  border-radius: 3px;
+  background: transparent;
+  color: #b3bfd3;
+  cursor: pointer;
+}
+.sm-theme svg {
+  width: 18px;
+  height: 18px;
+}
+.sm-theme svg:last-child {
+  display: none;
+}
+:root[data-theme='light'] .sm-theme svg:first-child {
+  display: none;
+}
+:root[data-theme='light'] .sm-theme svg:last-child {
+  display: block;
+}
+:root[data-theme='light'] {
+  --bg: #f7f3ec;
+  --bg-elev: #fbf8f2;
+  --panel: #fffcf7;
+  --panel-2: #f1ebe1;
+  --panel-3: #e6dfd2;
+  --line: #e5ded2;
+  --line-2: #d3cabb;
+  --text: #1c2230;
+  --muted: #4b5466;
+  --faint: #7b8394;
+  --accent: #3672ee;
+  --accent-2: #0c9fc2;
+  --shadow: 0 10px 40px rgba(70, 55, 30, 0.14);
+  color-scheme: light;
+}
+:root[data-theme='light'] body {
+  background: var(--bg);
+}
+:root[data-theme='light'] .topbar {
+  background: rgba(247, 243, 236, 0.85);
+}
+:root[data-theme='light'] .sm-side {
+  background: #f1ece3;
+  border-right-color: #e5ded2;
+}
+:root[data-theme='light'] .sm-logo,
+:root[data-theme='light'] .sm-side-a {
+  color: #1c2230;
+}
+:root[data-theme='light'] .sm-side-h,
+:root[data-theme='light'] .sm-side-prog-t {
+  color: #7b8394;
+}
+:root[data-theme='light'] .sm-side-a:hover,
+:root[data-theme='light'] .sm-side-a[aria-current] {
+  background: #e6dfd2;
+}
+:root[data-theme='light'] .sm-side-card {
+  background: #fffcf7;
+  border-color: #e5ded2;
+  color: #1c2230;
+}
+:root[data-theme='light'] .sm-theme {
+  border-color: #d3cabb;
+  color: #4b5466;
+}

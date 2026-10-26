@@ -8,7 +8,8 @@ export function init() {
 
 const STRINGS = OPEN.map((m, i) => ({ midi: m, i, f: 440 * 2 ** ((m - 69) / 12) }));
 
-export function yin(buf, sr) {
+// out (по желанию) получает ap — непериодичность кадра: 0 у чистого тона, ближе к 0.12 у звука с воздухом
+export function yin(buf, sr, out) {
   const half = Math.floor(buf.length / 2);
   let rms = 0;
   for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
@@ -44,6 +45,7 @@ export function yin(buf, sr) {
   const b = d[tau];
   const c = d[tau + 1] ?? d[tau];
   const shift = (a - c) / (2 * (a - 2 * b + c) || 1);
+  if (out) out.ap = b;
   return sr / (tau + (Number.isFinite(shift) ? shift : 0));
 }
 
