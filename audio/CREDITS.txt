@@ -12,3 +12,13 @@ bass/          электрический бас — Karoryfer Samples: https://
 tonejs-instruments (Nicholas Brosowsky): https://github.com/nbrosowsky/tonejs-instruments
 drums/         ударные — Versilian Community Sample Library (VCSL), Versilian Studios — CC0 (общественное достояние)
                https://github.com/sgossner/VCSL : большой барабан, малый барабан, удар по ободу, хай-хэт, шейкер
+
+Страница MIDI-клавиатуры (/midi/), нарезка — tools/midi_samples.py (моно 96 кбит/с, высота каждой ноты проверена):
+organ/ harpsichord/ vibes/ marimba/ glock/ kalimba/ harp/ sax/
+               Versilian Community Sample Library (VCSL), Versilian Studios — CC0: орган (Simon Dalzell, Ivy Audio,
+               Pipe Organ / Quiet), клавесин (English), вибрафон, маримба, глокеншпиль, калимба (Kenya),
+               концертная арфа, тенор-саксофон. https://github.com/sgossner/VCSL
+kit/           Virtuosity Drums, Versilian Studios — CC0 (https://vis.versilstudios.com/); хлопок — VCSL Claps, CC0
+rhodes/        jRhodes3d, Jeff Learman (Rhodes Mark I Stage 73, 1977) — CC BY-NC 4.0: только некоммерческое
+               использование. Если на сайте появится реклама или платное — убрать или получить лицензию у автора.
+               https://github.com/sfzinstruments/jlearman.jRhodes3d
