@@ -5,6 +5,7 @@
 // Ноты своей руки, которые не помещаются на клавиатуру, переносятся на октаву («Уложить в мою клавиатуру»).
 // На странице песни (.fall[data-slug]) партия строится из аккордов песни (lib/pianopart.js),
 // на /piano/play/ (.fall-picker) — выбор песни и свои MIDI-файлы (хранятся в браузере, IndexedDB snezh-midi).
+import { click } from '../audio.js';
 import { icon } from '../lib/icons.js';
 import { midiPart, parseMidi } from '../lib/midifile.js';
 import { pianoPart } from '../lib/pianopart.js';
@@ -18,7 +19,7 @@ const isBlack = (m) => [1, 3, 6, 8, 10].includes(mod12(m));
 const oct = (m) => Math.floor(m / 12) - 1;
 // размер клавиатуры → её первая клавиша по умолчанию (MPK mini и другие 25-клавишные — от C3)
 const KEYBOARDS = { 25: 48, 32: 53, 37: 48, 49: 36, 61: 36, 76: 28, 88: 21 };
-const DEF = { hand: 'R', auto: true, mode: 'wait', speed: 70, kb: 25, lo: 48, fit: true, labels: 'lat', snd: 'piano' };
+const DEF = { hand: 'R', auto: true, mode: 'wait', speed: 70, kb: 25, lo: 48, fit: true, labels: 'lat', snd: 'piano', guide: false, metro: false, ramp: false };
 const COL = { R: '#4f8cff', L: '#8b6cff', ok: '#3ccf91', bad: '#ff5d5d', press: '#38d6ff' };
 const LOOK = 6; // сколько долей видно над клавиатурой
 // клавиши компьютера (по положению, раскладка не важна): нижний ряд — от первой «до» клавиатуры, верхний — октавой выше
@@ -54,7 +55,11 @@ function mount(root) {
   let gi = 0;
   let ai = 0;
   let mi = 0;
-  let loop = null;
+  let loop = null; // отрывок для повтора: { from, to } в долях
+  let loopOn = false;
+  let listening = null; // «Послушать»: сайт играет отрывок сам — { to, back }
+  let pass = null; // счёт на начале круга отрывка
+  const passes = []; // точность прошлых кругов, %
   let lastNow = 0;
   let raf = 0;
   let pedal = false;
@@ -70,6 +75,19 @@ function mount(root) {
   root.textContent = '';
   const playBtn = el('button', { type: 'button', class: 'btn btn-play fl-play', html: `${I('play', true)}<span>Играть</span>` });
   const backBtn = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Сначала', title: 'Сначала', html: I('undo-2') });
+  const barBack = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Такт назад', title: 'Такт назад (←)', html: I('skip-back', true) });
+  const barFwd = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Такт вперёд', title: 'Такт вперёд (→)', html: I('skip-forward', true) });
+  const aBtn = el('button', { type: 'button', class: 'btn btn-small btn-ghost', title: 'Отрывок начнётся с такта, где сейчас ноты' }, 'Начало отрывка');
+  const bBtn = el('button', { type: 'button', class: 'btn btn-small btn-ghost', title: 'Отрывок закончится этим тактом' }, 'Конец отрывка');
+  const clearBtn = el('button', { type: 'button', class: 'btn btn-small btn-ghost', hidden: true }, 'Убрать отрывок');
+  const listenBtn = el('button', { type: 'button', class: 'btn btn-small btn-ghost', title: 'Сайт сыграет отрывок (или часть) целиком — потом ваша очередь', html: `${I('headphones')}<span>Послушать</span>` });
+  const guideTg = el('button', { type: 'button', class: 'tg', title: 'Ваши ноты тоже звучат — тихо, как подсказка на слух' }, 'Подсказка звуком');
+  const metroTg = el('button', { type: 'button', class: 'tg', title: 'Щелчок на каждую долю, на первую — громче' }, 'Метроном');
+  const rampTg = el('button', { type: 'button', class: 'tg', title: 'После круга отрывка без ошибок (от 90 %) скорость +5 %, пока не дойдёт до 100 %' }, 'Темп растёт');
+  const tlLoop = el('i', { class: 'fl-tl-loop', hidden: true });
+  const tlHead = el('i', { class: 'fl-tl-head' });
+  const tl = el('div', { class: 'fl-tl', title: 'Нажмите — перейти к такту; протяните — выбрать отрывок для повтора' }, tlLoop, tlHead);
+  const tlInfo = el('div', { class: 'fl-tl-info muted small' });
   const seg = (name, items, key) => {
     const box = el('div', { class: 'seg', role: 'group', 'aria-label': name });
     for (const [v, label] of items) {
@@ -95,7 +113,7 @@ function mount(root) {
   const labelSel = el('select', { 'aria-label': 'Подписи нот' }, el('option', { value: 'lat' }, 'C D E'), el('option', { value: 'ru' }, 'до ре ми'), el('option', { value: 'off' }, 'без подписей'));
   const sndSel = el('select', { 'aria-label': 'Звук' }, K.SOUNDS.filter((s) => !s.kit && !s.custom).map((s) => el('option', { value: s.id }, s.name)));
   const secSel = el('select', { 'aria-label': 'Часть песни' });
-  const loopTg = el('button', { type: 'button', class: 'tg' }, 'Повторять часть');
+  const loopTg = el('button', { type: 'button', class: 'tg', title: 'Повторять отрывок по кругу; если отрывка нет — часть, где сейчас ноты' }, 'Повторять');
   const led = el('i', { class: 'mk-led' });
   const midiTxt = el('span', { class: 'fl-midi-t' }, 'MIDI-клавиатура не подключена');
   const midiBtn = el('button', { type: 'button', class: 'btn btn-small btn-ghost', html: `${I('usb')}<span>Подключить</span>` });
@@ -107,13 +125,13 @@ function mount(root) {
   const lbl = (t, ...kids) => el('label', { class: 'ctl-select' }, el('span', { class: 'ctl-label' }, t), ...kids);
   root.append(
     el('div', { class: 'fl-midi' }, led, midiTxt, midiBtn),
-    el('div', { class: 'fl-bar' }, playBtn, backBtn, modeSeg, handSeg, autoTg),
+    el('div', { class: 'fl-bar' }, playBtn, backBtn, barBack, barFwd, modeSeg, handSeg, autoTg),
+    el('div', { class: 'fl-bar fl-learn' }, el('span', { class: 'ctl-label' }, 'Учить'), aBtn, bBtn, loopTg, clearBtn, listenBtn, guideTg, metroTg, rampTg),
     el(
       'div',
       { class: 'fl-bar fl-bar2' },
       el('label', { class: 'ctl-slider' }, el('span', { class: 'ctl-label' }, 'Скорость'), speedIn, speedOut),
       lbl('Часть', secSel),
-      loopTg,
       lbl('Клавиатура', kbSel),
       loBtn,
       fitTg,
@@ -122,8 +140,10 @@ function mount(root) {
     ),
     off,
     el('div', { class: 'fl-info' }, now, stat),
+    tl,
+    tlInfo,
     stage,
-    el('p', { class: 'muted small fl-hint' }, 'Синие ноты — правая рука, фиолетовые — левая; бледные играет сайт. Без MIDI — мышью по клавишам или с клавиатуры компьютера: Z S X D C V… — нижняя октава, Q 2 W 3 E… — верхняя. Пэды 1–4 MPK mini: старт/пауза, сначала, медленнее, быстрее.'),
+    el('p', { class: 'muted small fl-hint' }, 'Синие ноты — правая рука, фиолетовые — левая; бледные играет сайт. Перемотка: ← → по тактам, колесо мыши или протяжка по нотам; пробел — пауза. Отрывок для повтора — протяните по полоске над нотами или «Начало / Конец отрывка». Без MIDI — мышью по клавишам или клавишами компьютера: Z S X D C V… — нижняя октава, Q 2 W 3 E… — верхняя. Пэды 1–4 MPK mini: старт/пауза, сначала, медленнее, быстрее.'),
   );
 
   const g = cv.getContext('2d');
@@ -140,10 +160,12 @@ function mount(root) {
   function drawSeg() {
     for (const [box, key] of [[modeSeg, 'mode'], [handSeg, 'hand']]) for (const b of box.children) b.classList.toggle('on', b.dataset.v === cfg[key]);
     autoTg.setAttribute('aria-pressed', String(cfg.auto));
-    autoTg.disabled = cfg.mode === 'watch' || cfg.hand === 'both';
+    autoTg.disabled = mode() === 'watch' || cfg.hand === 'both';
     fitTg.setAttribute('aria-pressed', String(cfg.fit));
-    loopTg.setAttribute('aria-pressed', String(!!loop));
-    loopTg.disabled = secSel.value === '';
+    loopTg.setAttribute('aria-pressed', String(loopOn));
+    clearBtn.hidden = !loop;
+    for (const [b, k] of [[guideTg, 'guide'], [metroTg, 'metro'], [rampTg, 'ramp']]) b.setAttribute('aria-pressed', String(!!cfg[k]));
+    listenBtn.innerHTML = listening ? `${I('square', true)}<span>Хватит слушать</span>` : `${I('headphones')}<span>Послушать</span>`;
     kbSel.value = String(cfg.kb);
     labelSel.value = cfg.labels;
     sndSel.value = cfg.snd;
@@ -187,23 +209,169 @@ function mount(root) {
     save();
     K.load(cfg.snd);
   });
+  // --- отрывок для повтора, перемотка по тактам ---
+  const barIdx = (t) => {
+    let i = 0;
+    for (let k = 0; k < part.bars.length; k++) if (part.bars[k].t <= t + 1e-6) i = k;
+    return i;
+  };
+  const barT = (i) => (i >= part.bars.length ? part.total : part.bars[Math.max(0, i)].t);
+  const sectionRange = (t) => {
+    const secs = part.sections;
+    let i = 0;
+    secs.forEach((x, k) => x.t <= t + 1e-6 && (i = k));
+    return { from: secs[i].t, to: secs.slice(i + 1).find((x) => x.t > secs[i].t)?.t ?? part.total };
+  };
+  function setRegion(from, to, on = true) {
+    if (to < from) [from, to] = [to, from];
+    if (to - from < 0.5) to = barT(barIdx(from) + 1);
+    loop = { from, to };
+    loopOn = on;
+    passes.length = 0;
+    drawSeg();
+    drawTimeline();
+  }
+  function setSpeed(v) {
+    cfg.speed = Math.max(25, Math.min(120, v));
+    speedIn.value = cfg.speed;
+    speedOut.textContent = `${cfg.speed} %`;
+    save();
+  }
   secSel.addEventListener('change', () => {
-    loop = null;
-    if (secSel.value !== '' && loopTg.getAttribute('aria-pressed') === 'true') setLoop();
+    if (secSel.value !== '' && loop) {
+      const r = sectionRange(part.sections[Number(secSel.value)].t);
+      setRegion(r.from, r.to, loopOn);
+    }
     drawSeg();
     restart();
   });
   loopTg.addEventListener('click', () => {
-    if (loop) loop = null;
-    else setLoop();
-    drawSeg();
+    if (!part) return;
+    if (!loop) {
+      const r = sectionRange(secSel.value !== '' ? part.sections[Number(secSel.value)].t : Math.max(0, st));
+      setRegion(r.from, r.to, true);
+    } else {
+      loopOn = !loopOn;
+      passes.length = 0;
+      drawSeg();
+      drawTimeline();
+    }
   });
-  function setLoop() {
-    const i = Number(secSel.value);
-    const s = part?.sections[i];
-    if (!s) return;
-    loop = { from: s.t, to: part.sections.slice(i + 1).find((x) => x.t > s.t)?.t ?? part.total };
+  aBtn.addEventListener('click', () => {
+    if (!part) return;
+    const from = barT(barIdx(Math.max(0, st)));
+    setRegion(from, loop && loop.to > from + 0.5 ? loop.to : Math.min(part.total, barT(barIdx(from) + 4)));
+  });
+  bBtn.addEventListener('click', () => {
+    if (!part) return;
+    const to = barT(barIdx(Math.max(0, st - 0.01)) + 1);
+    setRegion(loop && loop.from < to - 0.5 ? loop.from : barT(Math.max(0, barIdx(to - 0.01) - 3)), to);
+  });
+  clearBtn.addEventListener('click', () => {
+    loop = null;
+    loopOn = false;
+    passes.length = 0;
+    drawSeg();
+    drawTimeline();
+  });
+  for (const [b, k] of [[guideTg, 'guide'], [metroTg, 'metro'], [rampTg, 'ramp']])
+    b.addEventListener('click', () => {
+      cfg[k] = !cfg[k];
+      save();
+      drawSeg();
+    });
+  // «Послушать»: сайт играет отрывок (или часть) всеми нотами, потом возвращает к его началу
+  listenBtn.addEventListener('click', () => {
+    if (!part) return;
+    unlock();
+    if (listening) return endListen();
+    const r = loop || (secSel.value !== '' ? sectionRange(part.sections[Number(secSel.value)].t) : sectionRange(Math.max(0, st)));
+    listening = { to: r.to, back: r.from };
+    prepare(true);
+    seek(r.from - lead(), false);
+    playing = true;
+    drawSeg();
+    drawPlay();
+    kick();
+  });
+  function endListen() {
+    const back = listening.back;
+    listening = null;
+    playing = false;
+    silence(false);
+    prepare(true);
+    seek(back - lead(), false);
+    drawSeg();
+    drawPlay();
   }
+  function stepBar(d) {
+    if (!part) return;
+    unlock();
+    const i = barIdx(Math.max(0, st + 0.01));
+    // назад: если такт уже начался — к его началу, иначе к предыдущему
+    const target = d < 0 && st - barT(i) > 0.75 ? barT(i) : barT(Math.max(0, i + d));
+    seek(Math.min(target, part.total), false);
+    drawPlay();
+  }
+  barBack.addEventListener('click', () => stepBar(-1));
+  barFwd.addEventListener('click', () => stepBar(1));
+
+  // полоска времени над нотами: части, отрывок, где сейчас
+  function drawTimeline() {
+    if (!part) return;
+    tl.querySelectorAll('.fl-tl-sec').forEach((e) => e.remove());
+    const T = part.total || 1;
+    part.sections.forEach((x, i) => {
+      const end = part.sections[i + 1]?.t ?? T;
+      tl.insertBefore(el('span', { class: 'fl-tl-sec', style: `left:${(x.t / T) * 100}%;width:${((end - x.t) / T) * 100}%`, title: x.name }, x.name), tlLoop);
+    });
+    tlLoop.hidden = !loop;
+    if (loop) {
+      tlLoop.style.left = `${(loop.from / T) * 100}%`;
+      tlLoop.style.width = `${((loop.to - loop.from) / T) * 100}%`;
+      tlLoop.classList.toggle('off', !loopOn);
+    }
+    drawHead(true);
+  }
+  let headText = '';
+  function drawHead(force = false) {
+    if (!part) return;
+    tlHead.style.left = `${Math.max(0, Math.min(1, st / (part.total || 1))) * 100}%`;
+    const bi = barIdx(Math.max(0, st));
+    const txt = [`Такт ${bi + 1} из ${part.bars.length}`, loop ? `отрывок: такты ${barIdx(loop.from) + 1}–${barIdx(loop.to - 0.01) + 1}${loopOn ? ', по кругу' : ''}` : '', passes.length ? `кругов ${passes.length}, последний ${passes[passes.length - 1]} %` : '', listening ? 'слушаем' : ''].filter(Boolean).join(' · ');
+    if (force || txt !== headText) tlInfo.textContent = headText = txt;
+  }
+  let tlDrag = null;
+  const tAt = (x) => {
+    const r = tl.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (x - r.left) / r.width)) * part.total;
+  };
+  tl.addEventListener('pointerdown', (e) => {
+    if (!part) return;
+    tl.setPointerCapture?.(e.pointerId);
+    tlDrag = { x: e.clientX, t0: tAt(e.clientX), moved: false };
+  });
+  tl.addEventListener('pointermove', (e) => {
+    if (!tlDrag) return;
+    if (!tlDrag.moved && Math.abs(e.clientX - tlDrag.x) < 6) return;
+    tlDrag.moved = true;
+    const t1 = tAt(e.clientX);
+    loop = { from: barT(barIdx(Math.min(tlDrag.t0, t1))), to: barT(barIdx(Math.max(tlDrag.t0, t1)) + 1) };
+    loopOn = true;
+    drawTimeline();
+  });
+  tl.addEventListener('pointerup', (e) => {
+    if (!tlDrag) return;
+    const d = tlDrag;
+    tlDrag = null;
+    unlock();
+    if (d.moved) {
+      passes.length = 0;
+      drawSeg();
+      seek(loop.from - lead(), false);
+    } else seek(barT(barIdx(tAt(e.clientX))), false);
+    drawPlay();
+  });
 
   // --- MIDI ---
   const drawMidi = () => {
@@ -235,12 +403,7 @@ function mount(root) {
       const pad = e.note - 36;
       if (pad === 0) toggle();
       else if (pad === 1) restart();
-      else if (pad === 2 || pad === 3) {
-        cfg.speed = Math.max(25, Math.min(120, cfg.speed + (pad === 2 ? -5 : 5)));
-        speedIn.value = cfg.speed;
-        speedOut.textContent = `${cfg.speed} %`;
-        save();
-      }
+      else if (pad === 2 || pad === 3) setSpeed(cfg.speed + (pad === 2 ? -5 : 5));
       return;
     }
     if (e.on && learnLo) {
@@ -263,10 +426,13 @@ function mount(root) {
   };
   root.addEventListener('pointerdown', unlock);
 
+  // режим сейчас: во время «Послушать» всё играет сайт
+  const mode = () => (listening ? 'watch' : cfg.mode);
+
   // --- партия ---
   function prepare(keepPos = false) {
     if (!part) return;
-    const mine = cfg.mode === 'watch' ? [] : cfg.hand === 'both' ? ['R', 'L'] : [cfg.hand];
+    const mine = mode() === 'watch' ? [] : cfg.hand === 'both' ? ['R', 'L'] : [cfg.hand];
     const lo = cfg.lo;
     const hi = cfg.lo + cfg.kb - 1;
     const seen = new Set();
@@ -292,7 +458,7 @@ function mount(root) {
       const key = `${my ? 'y' : 'n'}${Math.round(n.t * 64)}:${m}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      notes.push({ t: n.t, d: n.d, m, m0: n.m, h: n.h, mine: my, auto: !my && (cfg.mode === 'watch' || cfg.auto || cfg.hand === 'both'), state: 0 });
+      notes.push({ t: n.t, d: n.d, m, m0: n.m, h: n.h, mine: my, auto: !my && (mode() === 'watch' || cfg.auto || cfg.hand === 'both'), state: 0 });
     }
     notes.sort((a, b) => a.t - b.t || a.m - b.m);
     groups = [];
@@ -321,7 +487,7 @@ function mount(root) {
   }
 
   const lead = () => Math.min(part?.beatsPerBar || 4, 4);
-  const startOf = () => (secSel.value === '' ? 0 : part.sections[Number(secSel.value)]?.t ?? 0);
+  const startOf = () => (loop && loopOn ? loop.from : secSel.value === '' ? 0 : part.sections[Number(secSel.value)]?.t ?? 0);
   const bps = () => ((part?.bpm || 80) / 60) * (cfg.speed / 100);
   const firstAt = (t) => {
     let a = 0;
@@ -345,7 +511,9 @@ function mount(root) {
     ai = firstAt(t);
     mi = ai;
     if (resetScore) Object.assign(score, { hit: 0, miss: 0, wrong: 0, streak: 0, best: 0 });
+    pass = { hit: score.hit, miss: score.miss, wrong: score.wrong };
     drawStat();
+    drawHead();
     draw();
   }
 
@@ -359,6 +527,8 @@ function mount(root) {
     unlock();
     if (playing) return pause();
     if (st >= part.total) seek(startOf() - lead(), true);
+    // отрывок включён, а ноты не в нём — начинаем с его начала
+    else if (loop && loopOn && (st < loop.from - lead() - 0.01 || st >= loop.to)) seek(loop.from - lead(), false);
     playing = true;
     lastNow = performance.now();
     drawPlay();
@@ -393,6 +563,7 @@ function mount(root) {
     lastNow = t;
     if (playing) advance(dt);
     draw();
+    drawHead();
     if (playing || flashes.size) raf = requestAnimationFrame(frame);
   }
 
@@ -409,21 +580,52 @@ function mount(root) {
       else return;
     }
     let to = st + dt * speed;
-    if (cfg.mode === 'wait') {
+    if (mode() === 'wait') {
       const gr = pending();
       if (gr && to >= gr.t) {
         to = gr.t;
         waiting = true;
+        if (cfg.guide) for (const n of gr.notes) if (n.state === 0) hint(n, speed);
       }
     }
     autoPlay(st, to, speed);
+    if (cfg.metro) metronome(st, to, speed);
     st = to;
-    if (cfg.mode === 'tempo') misses(speed);
-    if (loop && st >= loop.to) {
-      seek(loop.from - lead(), false);
-      return;
-    }
+    if (mode() === 'tempo') misses(speed);
+    if (listening && st >= listening.to) return endListen();
+    if (loop && loopOn && st >= loop.to) return loopEnd();
     if (st >= part.total + 0.5) finish();
+  }
+
+  // круг отрывка закончился: точность круга, «Темп растёт», снова с начала отрывка
+  function loopEnd() {
+    const p = pass || { hit: 0, miss: 0, wrong: 0 };
+    const hit = score.hit - p.hit;
+    const tot = hit + (score.miss - p.miss) + (score.wrong - p.wrong);
+    if (mode() !== 'watch' && tot) {
+      const acc = Math.round((100 * hit) / tot);
+      passes.push(acc);
+      if (cfg.ramp && acc >= 90 && cfg.speed < 100) setSpeed(Math.min(100, cfg.speed + 5));
+    }
+    seek(loop.from - lead(), false);
+    drawHead(true);
+  }
+
+  // своя нота тихо — подсказка на слух
+  function hint(n, speed) {
+    const vc = K.play(cfg.snd, n.m, 42, null, 'B');
+    K.stop(vc, K.now() + Math.min(0.7, Math.max(0.15, n.d / speed)));
+  }
+
+  // метроном: щелчок на каждую долю в [from, to), на начало такта — громче
+  function metronome(from, to, speed) {
+    const bpb = part.beatsPerBar || 4;
+    const base = K.now() + 0.03;
+    for (let b = Math.ceil(from - 1e-9); b < to; b++) {
+      if (b < -lead()) continue;
+      const inBar = ((b % bpb) + bpb) % bpb;
+      click(base + (b - from) / speed, inBar < 1e-6, 0.8);
+    }
   }
 
   // ноты, которые играет сайт: те, что начинаются в [from, to)
@@ -431,7 +633,15 @@ function mount(root) {
     const base = K.now() + 0.03;
     while (ai < notes.length && notes[ai].t < to) {
       const n = notes[ai++];
-      if (!n.auto || n.t < from - 1e-6) continue;
+      if (n.t < from - 1e-6) continue;
+      if (!n.auto) {
+        if (cfg.guide && n.mine && mode() === 'tempo') {
+          const w = base + (n.t - from) / speed;
+          const vc = K.play(cfg.snd, n.m, 42, w, 'B');
+          K.stop(vc, w + Math.min(0.7, Math.max(0.15, n.d / speed)));
+        }
+        continue;
+      }
       const when = base + (n.t - from) / speed;
       const vc = K.play(cfg.snd, n.m0, n.h === 'L' ? 62 : 74, when, 'B');
       K.stop(vc, when + Math.max(0.08, n.d / speed));
@@ -457,7 +667,7 @@ function mount(root) {
     silence(false);
     drawPlay();
     const tot = score.hit + score.miss;
-    stat.textContent = cfg.mode === 'watch' || !mineCount ? 'Готово!' : `Готово! Попаданий ${score.hit} из ${mineCount}${tot ? ` (${Math.round((score.hit / Math.max(1, cfg.mode === 'wait' ? mineCount : tot)) * 100)} %)` : ''} · лучшая серия ${score.best}${score.wrong ? ` · мимо ${score.wrong}` : ''}`;
+    stat.textContent = mode() === 'watch' || !mineCount ? 'Готово!' : `Готово! Попаданий ${score.hit} из ${mineCount}${tot ? ` (${Math.round((score.hit / Math.max(1, mode() === 'wait' ? mineCount : tot)) * 100)} %)` : ''} · лучшая серия ${score.best}${score.wrong ? ` · мимо ${score.wrong}` : ''}`;
   }
 
   // --- игра человека ---
@@ -495,10 +705,10 @@ function mount(root) {
   }
 
   function judge(m) {
-    if (!part || !playing || cfg.mode === 'watch' || !mineCount) return;
+    if (!part || !playing || mode() === 'watch' || !mineCount) return;
     const speed = bps();
     let best = null;
-    if (cfg.mode === 'wait') {
+    if (mode() === 'wait') {
       const gr = pending();
       // можно чуть раньше: за долю до линии
       if (gr && (waiting || gr.t - st <= 1)) best = gr.notes.find((n) => n.state === 0 && n.m === m);
@@ -538,12 +748,12 @@ function mount(root) {
     const ch = [...part.chords].reverse().find((c) => c.t <= st + 0.01);
     const sec = [...part.sections].reverse().find((s) => s.t <= Math.max(0, st) + 0.01);
     now.textContent = [sec?.name, ch?.name, shift ? `ваша рука ${Math.abs(shift) / 12 > 1 ? `на ${Math.abs(shift) / 12} октавы` : 'на октаву'} ${shift < 0 ? 'ниже' : 'выше'}` : ''].filter(Boolean).join(' · ');
-    if (cfg.mode === 'watch' || !mineCount) {
+    if (mode() === 'watch' || !mineCount) {
       stat.textContent = 'Слушайте и смотрите — играет сайт';
       return;
     }
     const tot = score.hit + score.miss;
-    stat.textContent = `Попаданий ${score.hit}${tot && cfg.mode === 'tempo' ? ` из ${tot} · ${Math.round((score.hit / tot) * 100)} %` : ''} · серия ${score.streak}${score.wrong ? ` · мимо ${score.wrong}` : ''}`;
+    stat.textContent = `Попаданий ${score.hit}${tot && mode() === 'tempo' ? ` из ${tot} · ${Math.round((score.hit / tot) * 100)} %` : ''} · серия ${score.streak}${score.wrong ? ` · мимо ${score.wrong}` : ''}`;
   }
 
   // --- мышь и клавиатура компьютера ---
@@ -556,11 +766,16 @@ function mount(root) {
     return null;
   };
   const touches = new Map();
+  // по нотам: нажатие — пауза/дальше, протяжка вверх-вниз — перемотка (вниз — вперёд, как падают ноты)
+  let scrub = null;
   cv.addEventListener('pointerdown', (e) => {
     const r = cv.getBoundingClientRect();
     const m = keyAt(e.clientX - r.left, e.clientY - r.top);
     if (m == null) {
-      if (e.clientY - r.top < fallH) toggle();
+      if (e.clientY - r.top < fallH && part) {
+        cv.setPointerCapture?.(e.pointerId);
+        scrub = { id: e.pointerId, y: e.clientY, st0: st, moved: false };
+      }
       return;
     }
     e.preventDefault();
@@ -569,6 +784,16 @@ function mount(root) {
     press(m, Math.round(50 + 70 * Math.min(1, (e.clientY - r.top - fallH) / kbH)));
   });
   cv.addEventListener('pointermove', (e) => {
+    if (scrub?.id === e.pointerId) {
+      const dy = e.clientY - scrub.y;
+      if (!scrub.moved && Math.abs(dy) < 5) return;
+      if (!scrub.moved && playing) pause();
+      scrub.moved = true;
+      st = Math.max(-lead(), Math.min(part.total, scrub.st0 + dy / (fallH / LOOK)));
+      draw();
+      drawHead();
+      return;
+    }
     if (!touches.has(e.pointerId)) return;
     const r = cv.getBoundingClientRect();
     const m = keyAt(e.clientX - r.left, e.clientY - r.top);
@@ -579,6 +804,15 @@ function mount(root) {
     touches.set(e.pointerId, m);
   });
   const up = (e) => {
+    if (scrub?.id === e.pointerId) {
+      const s0 = scrub;
+      scrub = null;
+      if (s0.moved) {
+        seek(st, false);
+        drawPlay();
+      } else toggle();
+      return;
+    }
     if (!touches.has(e.pointerId)) return;
     const was = touches.get(e.pointerId);
     touches.delete(e.pointerId);
@@ -586,9 +820,32 @@ function mount(root) {
   };
   cv.addEventListener('pointerup', up);
   cv.addEventListener('pointercancel', up);
+  // колесо мыши над нотами — перемотка (ставит на паузу): вниз — назад, вверх — вперёд
+  cv.addEventListener(
+    'wheel',
+    (e) => {
+      const r = cv.getBoundingClientRect();
+      if (!part || e.clientY - r.top > fallH) return;
+      e.preventDefault();
+      if (playing) pause();
+      seek(Math.max(-lead(), Math.min(part.total, st - (e.deltaY / (fallH / LOOK)) * 0.6)), false);
+      drawPlay();
+    },
+    { passive: false },
+  );
   const typing = (t) => t.closest?.('input, textarea, select, [contenteditable]');
   addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || !visible()) return;
+    if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+      e.preventDefault();
+      stepBar(e.code === 'ArrowLeft' ? -1 : 1);
+      return;
+    }
+    if (e.code === 'Space' && !e.target.closest?.('button, a, summary')) {
+      e.preventDefault();
+      if (!e.repeat) toggle();
+      return;
+    }
     const k = PC_KEYS[e.code];
     if (k == null) return;
     e.preventDefault();
@@ -666,6 +923,15 @@ function mount(root) {
     g.fillStyle = theme.ink3;
     for (const s of part.sections) if (s.t >= st - 0.5 && s.t <= st + LOOK) g.fillText(s.name, W - 6, yOf(s.t) - 3);
     g.textAlign = 'center';
+    // границы отрывка
+    if (loop) {
+      g.fillStyle = loopOn ? COL.ok : theme.ink3;
+      for (const [t, label] of [[loop.from, 'начало отрывка'], [loop.to, 'конец отрывка']])
+        if (t >= st - 0.5 && t <= st + LOOK) {
+          g.fillRect(0, Math.round(yOf(t)) - 1, W, 2);
+          g.fillText(label, W / 2, yOf(t) - 4);
+        }
+    }
     // ноты
     g.font = `700 11px ${getComputedStyle(root).fontFamily}`;
     for (let i = firstAt(st - 8); i < notes.length && notes[i].t <= st + LOOK; i++) {
@@ -759,20 +1025,24 @@ function mount(root) {
   }
 
   // проверка на странице: document.querySelector('.fall').__fall
-  root.__fall = { press, lift, toggle, restart, score, cfg, get st() { return st; }, get notes() { return notes; }, get waiting() { return waiting; }, get playing() { return playing; } };
+  root.__fall = { press, lift, toggle, restart, stepBar, setRegion, score, cfg, passes, get st() { return st; }, get notes() { return notes; }, get waiting() { return waiting; }, get playing() { return playing; }, get loop() { return loopOn && loop; }, get part() { return part; } };
 
   // --- снаружи ---
   drawSeg();
   return {
     setPart(p) {
+      listening = null;
       pause();
       part = p;
       loop = null;
+      loopOn = false;
+      passes.length = 0;
       secSel.textContent = '';
       secSel.append(el('option', { value: '' }, 'Вся песня'), ...p.sections.map((s, i) => el('option', { value: i }, `${i + 1}. ${s.name}`)));
       secSel.value = '';
       drawSeg();
       prepare(false);
+      drawTimeline();
       drawPlay();
       drawStat();
       K.load(cfg.snd);
