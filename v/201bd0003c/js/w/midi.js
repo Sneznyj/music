@@ -144,6 +144,7 @@ function applyMix() {
 // ---------- загрузка записей ----------
 const fetched = new Map();
 function fetchFiles(snd) {
+  if (snd.custom) return Promise.resolve([]);
   if (fetched.has(snd.id)) return fetched.get(snd.id);
   const names = snd.kit ? Object.keys(KIT_GAIN) : snd.notes.split(' ');
   const dir = snd.kit ? 'kit' : snd.dir;
@@ -510,6 +511,13 @@ function onMessage(e, port) {
   const type = st & 0xf0;
   const ch = st & 0x0f;
   if (cfg.ch >= 0 && ch !== cfg.ch && !(cfg.pads && ch === 9)) return;
+  if (tap) {
+    if (type === 0x90 && d2) tap({ on: true, note: d1, vel: d2, ch });
+    else if (type === 0x80 || type === 0x90) tap({ on: false, note: d1, ch });
+    else if (type === 0xb0) tap({ cc: d1, val: d2, ch });
+    emit('msg', { type, ch, d1, d2, port });
+    return;
+  }
   if (type === 0x90 && d2) noteOn(d1, d2, ch);
   else if (type === 0x80 || type === 0x90) noteOff(d1, ch);
   else if (type === 0xb0) controlChange(d1, d2);
@@ -517,6 +525,25 @@ function onMessage(e, port) {
   else if (type === 0xc0 && SOUNDS[d1]) emit('program', SOUNDS[d1].id);
   emit('msg', { type, ch, d1, d2, port });
 }
+
+// ---------- для других страниц (тренажёр «падающие ноты»): та же клавиатура и те же звуки ----------
+let tap = null;
+export const midiKit = {
+  connect,
+  state: midiState,
+  on,
+  SOUNDS,
+  byId,
+  engine,
+  load: (id) => (engine(), loadSound(byId[id])),
+  // забрать сообщения клавиатуры себе: fn({ on, note, vel, ch }) или fn({ cc, val }); null — вернуть странице MIDI
+  take: (fn) => (tap = fn),
+  // нота звуком id: шина 'A' — то, что играет человек, 'B' — то, что подыгрывает сайт
+  play: (id, pitch, vel, when, bus = 'A') => (engine(), voice(byId[id], pitch, vel, when, bus === 'B' ? busB : busA)),
+  stop: (vc, when, fast = false) => ctx && release(vc, when, fast),
+  hush: () => ctx && hushAll(),
+  now: () => engine().currentTime,
+};
 
 // ---------- запись игры ----------
 const rec = { on: false, t0: 0, ev: [], dur: 0, media: null, chunks: [], blob: null };

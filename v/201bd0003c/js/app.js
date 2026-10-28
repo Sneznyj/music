@@ -44,6 +44,7 @@ const blocks = [
   ['.songbook', () => import('./w/songbook.js')],
   ['.vocal-tools', () => import('./w/vocal.js')],
   ['.mk', () => import('./w/midi.js')],
+  ['.fall, .fall-picker', () => import('./w/falling.js')],
 ];
 for (const [sel, load] of blocks) {
   if (document.querySelector(sel)) load().then((m) => m.init()).catch((err) => console.error(sel, err));

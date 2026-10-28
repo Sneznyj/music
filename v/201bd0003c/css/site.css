@@ -4742,3 +4742,102 @@ summary a > svg,
   background: rgb(255 138 51 / 0.12);
   color: #b4530f;
 }
+
+/* ---------- падающие ноты (/piano/play/ и вкладка «Пианино» у песни, static/js/w/falling.js) ---------- */
+.fall {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin: 12px 0;
+}
+.fl-midi {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.fl-midi-t {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.fl-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.fl-bar2 {
+  gap: 8px 18px;
+}
+.fl-bar .ctl-slider input {
+  width: 120px;
+}
+.fl-bar .ctl-slider output {
+  min-width: 44px;
+}
+.fl-info {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  min-height: 1.6em;
+}
+.fl-now {
+  color: var(--accent-text);
+  font-weight: 700;
+}
+.fl-stat {
+  font: 600 13px/1.6 var(--mono);
+  color: var(--ink-2);
+}
+.fl-stage {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.fl-cv {
+  display: block;
+  width: 100%;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.fl-hint {
+  margin: 0;
+}
+.fall-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin: 20px 0 28px;
+}
+.fall-picker > .fall {
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface);
+}
+.fl-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.fl-pick .ctl-select select {
+  max-width: min(440px, 72vw);
+}
+.fl-pick-msg {
+  margin: 0;
+}
+.fl-own {
+  margin-bottom: 28px;
+}
+.fl-own h2 {
+  margin-top: 0;
+  font-size: 20px;
+}

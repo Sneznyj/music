@@ -446,6 +446,7 @@ https://music.sneznyj.com/chords/
 https://music.sneznyj.com/tabs/
 https://music.sneznyj.com/tuner/
 https://music.sneznyj.com/metronome/
+https://music.sneznyj.com/piano/play/
 https://music.sneznyj.com/midi/
 https://music.sneznyj.com/
 https://music.sneznyj.com/credits/

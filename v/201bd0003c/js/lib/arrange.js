@@ -102,3 +102,56 @@ export function arrange({ bars, meter, key, voicingOf, advanced = false }) {
   const [n, d] = meter.split('/').map(Number);
   return { tab: lines.join('\n'), grid: meter === '6/8' ? 1 : 2, meter: [n, d] };
 }
+
+// Свой рисунок песни (PATTERNS[…].own, например рисунок Доминика Миллера в Shape of My Heart) — по шестнадцатым.
+// Шаг рисунка — восьмая; «2,B» — вторая нота на шестнадцатую позже; N — бас аккорда, который звучит следующим.
+// Номера струн берутся как в форме песни; если струна в форме молчит — ближайшая звучащая, верхние номера выше.
+export function arrangeOwn({ bars, meter, steps, voicingOf }) {
+  const M = METERS[meter];
+  const flat = bars.flatMap((bar) => bar.flatMap((ch) => Array.from({ length: ch.slots }, (_, k) => ({ ch, k }))));
+  const info = new Map();
+  const infoOf = (name) => {
+    if (info.has(name)) return info.get(name);
+    const v = voicingOf(name);
+    const b = v ? bassString(v, name) : -1;
+    const up = v ? [5, 4, 3, 2, 1, 0].filter((s) => s > b && v.frets[s] >= 0) : [];
+    const used = [...new Set(steps.flatMap((st) => st.split(/[,+]/)).filter((p) => /^\d$/.test(p)).map(Number))].sort((a, z) => a - z);
+    const got = new Map();
+    for (const n of used) if (up.includes(6 - n)) got.set(n, 6 - n);
+    for (const n of used) if (!got.has(n)) got.set(n, up.find((s) => ![...got.values()].includes(s)) ?? up[0] ?? -1);
+    // верхние номера — на верхних струнах
+    const strs = [...new Set(got.values())].filter((s) => s >= 0).sort((a, z) => z - a);
+    used.forEach((n, i) => got.set(n, strs[Math.min(i, strs.length - 1)] ?? -1));
+    const o = { v, b, map: got };
+    info.set(name, o);
+    return o;
+  };
+  const cell = (part, i) => {
+    const out = [];
+    for (const p of part.split('+')) {
+      if (p === '.' || !p) continue;
+      const name = p === 'N' ? flat[(i + 1) % flat.length].ch.name : flat[i].ch.name;
+      const { v, b, map } = infoOf(name);
+      const s = p === 'B' || p === 'N' ? b : map.get(Number(p));
+      if (!v || s == null || s < 0) continue;
+      const txt = `${6 - s}.${v.frets[s]}`;
+      if (!out.some((x) => x.startsWith(`${6 - s}.`))) out.push(txt);
+    }
+    return out.length ? out.join('+') : '_';
+  };
+  const out = [];
+  let i = 0;
+  for (const bar of bars) {
+    const cells = [];
+    for (const ch of bar)
+      for (let k = 0; k < ch.slots; k++, i++) {
+        const [a, z = '.'] = steps[(i % M.slots) % steps.length].split(',');
+        cells.push((k === 0 ? `[${ch.name}] ` : '') + cell(a, i), cell(z, i));
+      }
+    out.push(cells.join(' '));
+  }
+  const lines = [];
+  for (let j = 0; j < out.length; j += 4) lines.push(out.slice(j, j + 4).join(' | ') + ' |');
+  const [n, d] = meter.split('/').map(Number);
+  return { tab: lines.join('\n'), grid: M.slotsPerBeat * 2, meter: [n, d] };
+}
