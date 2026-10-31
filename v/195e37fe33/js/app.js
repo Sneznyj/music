@@ -63,7 +63,6 @@ document.addEventListener('click', (e) => {
     /* нет хранилища */
   }
 });
-if (document.documentElement.dataset.theme === 'light') document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#f7f3ec');
 
 // звук гитары: акустика или классика; у песни может быть свой (Shape of My Heart — классика), пока человек не выбрал сам
 let chosen = null;
