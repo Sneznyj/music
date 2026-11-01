@@ -6,6 +6,16 @@
 // в шагах (восьмых) для подсветки слов.
 import { kindOf, syllables } from './chordpro.js';
 import { METERS } from './patterns.js';
+import { parseChord } from './theory.js';
+
+const minorOf = (c) => /^m(?!aj)/.test(c.suffix);
+// один и тот же аккорд по сути: Em и Em7 в разных записях одной песни
+const sameChord = (a, b) => {
+  if (a === b) return true;
+  const x = parseChord(a.split('/')[0]);
+  const y = parseChord(b.split('/')[0]);
+  return !!x?.valid && !!y?.valid && x.root === y.root && minorOf(x) === minorOf(y);
+};
 
 const norm = (s) => String(s || '').toLowerCase().replace(/×\s*\d+\s*$/, '').replace(/[^a-zа-яё0-9]+/g, ' ').trim();
 const fixName = (c) => c.replace(/^H/, 'B');
@@ -17,7 +27,8 @@ const secSeconds = (s, { bpm, meter }) => (s.bars.length * (s.repeat || 1) * MET
 // Вступление — один раз; круг от первой поющейся части до последней — сколько поместится; бридж — один раз, перед последним
 // припевом; кода — в конце. «Вся песня» и мелодии без повторов не трогаем: они уже целые. Круг (×4, ×8) и рифф — по кругу.
 // data.form — порядок, сверенный с записью песни (src/forms.json, tools/structure.mjs): если есть, он и есть ответ.
-export function fullForm(sections, { bpm, meter, form }, target = 210) {
+// data.realSeconds — длина настоящей записи: столько и играем, если порядка нет.
+export function fullForm(sections, { bpm, meter, form, realSeconds }, target = realSeconds || 210) {
   if (form) return form;
   const all = sections.map((_, i) => i);
   const kinds = sections.map((s) => kindOf(s.name));
@@ -128,32 +139,62 @@ export function textOrder(model, data, { barsPerLine = 0, cycles = 1 } = {}) {
   const firstChord = model.find((l) => l.chords?.length).chords[0].c;
   let held = fixName(firstChord);
 
-  // Строфа, у которой аккорды идут кругами какой-то части песни: длины аккордов берём из самой части, а не по слогам.
-  // Так 6 строк на два круга Em G D Em звучат ровно 8 тактами, а не 12. Не сошлось — null.
-  function alignStanza(st, sec) {
-    const cycle = sec.bars.flat();
+  // когда кончают петь строку: слоги после последнего аккорда в обычном для темпа ритме. Короткая строка кончается раньше
+  // следующей — это и есть пауза (проигрыш) между строками, слова не растягиваются на весь аккорд
+  const sylPerBeat = data.bpm >= 140 ? 1 : data.bpm >= 105 ? 1.4 : data.bpm >= 80 ? 1.8 : 2.2;
+  const singEnd = (text, last, lineEnd) => {
+    const beat = M.slotsPerBeat;
+    const sung = last.t + (syllables(text.slice(last.at)).length / sylPerBeat) * beat;
+    return Math.max(last.t + beat, Math.min(sung, lineEnd - beat));
+  };
+
+  // Строфа, у которой аккорды идут кругами частей песни: длины аккордов берём из самих частей, а не по слогам.
+  // Так 6 строк на два круга Em G D Em звучат как в части, а припев с концовкой — как припев и «Конец припева». Не сошлось — null.
+  function alignStanza(st, first) {
     const tokens = st.lines.flatMap((line) => line.chords.map((c) => ({ line, c, name: fixName(c.c) })));
     if (!tokens.length) return null;
-    const period = cycle.reduce((n, c) => n + c.slots, 0);
-    let idx = 0;
-    let at = 0;
-    for (let j = 0; j < tokens.length; j++) {
-      if (cycle[idx % cycle.length].name !== tokens[j].name) return null;
-      tokens[j].t = at;
-      at += cycle[idx % cycle.length].slots;
-      idx++;
-      // подряд одинаковые такты в тексте записаны одним аккордом: дотягиваем его, пока в части не сменится
-      const nextName = tokens[j + 1]?.name;
-      if (nextName !== tokens[j].name) {
-        while (cycle[idx % cycle.length].name === tokens[j].name && !(idx % cycle.length === 0 && j === tokens.length - 1) && cycle.some((c) => c.name !== tokens[j].name)) {
-          at += cycle[idx % cycle.length].slots;
-          idx++;
+    const order = [first, ...data.sections.filter((x) => x !== first)].filter(Boolean);
+    // один круг части с аккорда j; такт с тем же аккордом, что и прошлый, просто дотягивает его
+    const pass = (sec, j, at) => {
+      let k = j;
+      let t = at;
+      const starts = [];
+      // подряд одинаковые такты части — один аккорд; второй аккорд текста в таком куске — только если за ним идёт
+      // следующий аккорд части, иначе это уже начало нового круга
+      const groups = [];
+      for (const c of sec.bars.flat()) {
+        if (groups.length && sameChord(groups.at(-1).name, c.name)) groups.at(-1).items.push(c);
+        else groups.push({ name: c.name, items: [c] });
+      }
+      for (let g = 0; g < groups.length; g++) {
+        for (let n = 0; n < groups[g].items.length; n++) {
+          const here = k < tokens.length && sameChord(groups[g].name, tokens[k].name);
+          if (n === 0) {
+            if (here) starts.push({ k: k++, t });
+            else if (!(k > 0 && sameChord(groups[g].name, tokens[k - 1].name))) return null;
+          } else if (here && groups[g + 1] && k + 1 < tokens.length && sameChord(groups[g + 1].name, tokens[k + 1].name)) starts.push({ k: k++, t });
+          t += groups[g].items[n].slots;
         }
       }
-      tokens[j].end = at;
-    }
-    // строфа заканчивается концом круга
-    if (at % period !== 0 || at % M.slots !== 0) return null;
+      return k > j ? { k, t, starts } : null;
+    };
+    const dead = new Set();
+    const solve = (j, at) => {
+      if (j >= tokens.length) return { end: at, starts: [] };
+      if (dead.has(j)) return null;
+      for (const sec of order) {
+        const r = pass(sec, j, at);
+        const rest = r && solve(r.k, r.t);
+        if (rest) return { end: rest.end, starts: [...r.starts, ...rest.starts] };
+      }
+      dead.add(j);
+      return null;
+    };
+    const found = solve(0, 0);
+    if (!found) return null;
+    const at = found.end;
+    found.starts.forEach((x) => (tokens[x.k].t = x.t));
+    tokens.forEach((x, j) => (x.end = tokens[j + 1]?.t ?? at));
     const stream = tokens.map((x) => ({ name: x.name, slots: x.end - x.t, l: x.line.li, k: x.c.k }));
     const lines = [];
     const beat = M.slotsPerBeat;
@@ -173,7 +214,7 @@ export function textOrder(model, data, { barsPerLine = 0, cycles = 1 } = {}) {
       if (own.length && own[0].c.at > lead) anchors.push({ at: lead, t: start - beat });
       else if (!own.length) anchors.push({ at: lead, t: start });
       for (const x of own) anchors.push({ at: x.c.at, t: x.t });
-      anchors.push({ at: line.text.length, t: Math.max(anchors.at(-1).t + beat, lineEnd - beat) });
+      anchors.push({ at: line.text.length, t: singEnd(line.text, anchors.at(-1), lineEnd) });
       lines.push({ l: line.li, start, from: anchors[0].t, to: lineEnd, anchors });
     });
     held = tokens.at(-1).name;
@@ -183,11 +224,8 @@ export function textOrder(model, data, { barsPerLine = 0, cycles = 1 } = {}) {
   // одна строфа на поток аккордов: { name, slots, l, k } и строки со временем от начала строфы
   function timeStanza(st) {
     if (!barsPerLine) {
-      const named = secByName(st.head);
-      for (const sec of [named, ...data.sections].filter(Boolean)) {
-        const done = alignStanza(st, sec);
-        if (done) return done;
-      }
+      const done = alignStanza(st, secByName(st.head));
+      if (done) return done;
     }
     const stream = [];
     const lines = [];
@@ -238,8 +276,7 @@ export function textOrder(model, data, { barsPerLine = 0, cycles = 1 } = {}) {
       if (timed.length && timed[0].at > lead && timed[0].t === 0) anchors.push({ at: lead, t: start - beat });
       else if (!timed.length || timed[0].at > lead) anchors.push({ at: lead, t: start });
       for (const c of timed) anchors.push({ at: c.at, t: start + c.t });
-      const lastT = anchors.at(-1).t;
-      anchors.push({ at: len, t: Math.max(lastT + beat, start + total - beat) });
+      anchors.push({ at: len, t: singEnd(line.text, anchors.at(-1), start + total) });
       lines.push({ l: line.li, start, from: anchors[0].t, to: start + total, anchors });
       pos += total;
     }

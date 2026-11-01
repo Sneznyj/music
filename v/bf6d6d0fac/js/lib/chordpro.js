@@ -25,6 +25,7 @@ const JUNK = [
   /^get tickets/i,
   /^\d*embed$/i,
   /^(источник|source|текст песни|lyrics)\s*:/i,
+  /^текст песни\s*[«"„]/i,
   /lyricfind|musixmatch|lyrics licensed/i,
   /^(слова|музыка|автор[ы]?|words|music)\s*:/i,
   /^translations?\b/i,
@@ -284,6 +285,7 @@ export function placeChords(text, sections, { bpm = 100, meter = '4/4' } = {}) {
     name: s.name,
     repeat: s.repeat || 1,
     kind: kindOf(s.name),
+    rows: s.rows,
     bars: s.bars.map((b) => {
       let pos = 0;
       const total = b.reduce((n, c) => n + (c.slots || 1), 0);
@@ -411,8 +413,52 @@ export function placeChords(text, sections, { bpm = 100, meter = '4/4' } = {}) {
   return trimLines(out.join('\n').replace(/\n{3,}/g, '\n\n'));
 }
 
+// Аккорды на каждую строку из сверки с сайтами аккордов (src/forms.json, rows), если строки совпадают: столько же, кратно,
+// или в тексте строк меньше (Genius склеил две) — тогда две строки источника достаются самым длинным строкам текста.
+function rowsPerLine(lines, rows) {
+  const L = lines.length;
+  const R = rows?.length || 0;
+  if (!R || !L) return null;
+  if (L % R === 0) return lines.map((_, i) => rows[i % R]);
+  if (L < R && R <= 2 * L) {
+    const bySyl = lines.map((t, i) => ({ i, n: syllables(t).length })).sort((a, b) => b.n - a.n);
+    const twice = new Set(bySyl.slice(0, R - L).map((x) => x.i));
+    let r = 0;
+    return lines.map((_, i) => {
+      const out = [...rows[r++]];
+      if (twice.has(i)) out.push(...rows[r++]);
+      return out;
+    });
+  }
+  return null;
+}
+
+// одна строка с заданными аккордами: первый — после затакта, остальные — поровну по слогам
+function placeRow(text, names) {
+  const sy = syllables(text);
+  const words = wordStarts(text);
+  const taken = new Set();
+  const chords = [];
+  names.forEach((name, k) => {
+    let at = 0;
+    if (k === 0) at = words[PICKUP.test(text.slice(words[0] ?? 0).split(/\s/)[0]) && words.length > 2 ? 1 : 0] ?? 0;
+    else if (sy.length) {
+      const s = sy[Math.min(sy.length - 1, Math.round((k / names.length) * sy.length))];
+      at = words.filter((x) => x <= s.at).at(-1) ?? 0;
+      if (taken.has(at)) at = words.find((x) => x > at && !taken.has(x)) ?? (taken.has(s.at) ? text.length : s.at);
+    } else if (text.length) at = Math.round((k / names.length) * text.length);
+    while (taken.has(at) && at < text.length) at++;
+    taken.add(at);
+    chords.push({ at, c: name });
+  });
+  chords.sort((a, b) => a.at - b.at);
+  return { text, chords };
+}
+
 // одна строфа на одну часть песни
 function placeStanza(lines, sec, { bpm, beatsPerBar }) {
+  const fromRows = rowsPerLine(lines, sec.rows);
+  if (fromRows) return lines.map((text, li) => placeRow(text, fromRows[li]));
   const B = sec.bars.length;
   const L = lines.length;
   const syl = lines.map((l) => syllables(l).length);

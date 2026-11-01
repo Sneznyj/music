@@ -181,6 +181,8 @@ function setup(root) {
   const summary = own.querySelector('summary');
   const delBtn = own.querySelector('.sb-own-del');
   const keyName = 'text.' + slug;
+  const keepName = 'textKeep.' + slug;
+  let freshKeep = false;
   const dirtyName = 'textDirty.' + slug;
   const cloud = myTexts(slug);
   const flatsSong = data.chords.some((c) => /^[A-G]b/.test(c));
@@ -254,7 +256,7 @@ function setup(root) {
   }
 
   // вставили слова: без аккордов — расставляем аккорды песни, с аккордами — подгоняем тональность под страницу
-  const sections = () => data.sections.map((s) => ({ name: s.name, repeat: s.repeat, bars: s.bars }));
+  const sections = () => data.sections.map((s) => ({ name: s.name, repeat: s.repeat, bars: s.bars, rows: s.rows }));
   function save() {
     let text = cleanPasted(input.value);
     original = '';
@@ -264,6 +266,7 @@ function setup(root) {
       return;
     }
     if (hasChords(text)) {
+      freshKeep = true;
       const fit = fitKey(text, data.chords);
       if (fit.shift) {
         original = text;
@@ -276,14 +279,47 @@ function setup(root) {
     }
     history = [];
     commit(text);
+    // вставили с аккордами — это выбор человека, заново расставлять не предлагаем
+    if (freshKeep) store.set(keepName, text);
+    freshKeep = false;
     own.open = false;
     ownView.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
+
+  // Текст сохранён раньше (или расставлен иначе), а теперь сайт знает аккорды по строкам из сверки с сайтами аккордов:
+  // сам ничего не меняем, в тексте могут быть правки человека, — предлагаем одной кнопкой.
+  const bareText = () =>
+    model
+      .filter((l) => l.head != null || l.text.trim() || !l.chords.length)
+      .map((l) => (l.head != null ? `${l.head}:` : l.text))
+      .join('\n');
+  const chordSig = (m) =>
+    m
+      .filter((l) => l.head == null && l.text.trim())
+      .map((l) => `${l.text.trim()}|${l.chords.map((c) => c.c).join(' ')}`)
+      .join('\n');
+  const freshText = () => placeChords(bareText(), sections(), { bpm: data.bpm, meter: data.meter });
+  function offerFresh() {
+    if (editing || !model.length || !data.sections.some((s) => s.rows) || store.get(keepName, '') === input.value) return;
+    if (chordSig(parseLines(freshText())) === chordSig(model)) return;
+    say('Аккорды этого текста можно расставить точнее: строка за строкой, как на сайтах с аккордами. <button class="linkbtn sb-fresh" type="button">Расставить заново</button> · <button class="linkbtn sb-keep" type="button">Оставить как есть</button>');
+  }
+  offerFresh();
   hint.addEventListener('click', (e) => {
     if (!e.target.closest('.sb-undo-fit') || !original) return;
     commit(original);
     original = '';
     say('Вернул аккорды как во вставленном тексте.');
+  });
+  hint.addEventListener('click', (e) => {
+    if (e.target.closest('.sb-keep')) {
+      store.set(keepName, input.value);
+      say('');
+    } else if (e.target.closest('.sb-fresh')) {
+      history.push(input.value);
+      commit(freshText());
+      say('Аккорды расставлены заново. Отменить можно в «Править аккорды».');
+    }
   });
   own.querySelector('.sb-own-save').addEventListener('click', save);
   // вставили в пустое поле — сразу показываем с аккордами
@@ -343,6 +379,8 @@ function setup(root) {
     fn();
     for (const l of model) l.chords?.sort((a, b) => a.at - b.at);
     commit(serialize(model), true);
+    // поправил руками — заново расставлять больше не предлагаем
+    store.set(keepName, input.value);
   };
   undoBtn.addEventListener('click', () => {
     if (!history.length) return;
@@ -350,12 +388,8 @@ function setup(root) {
   });
   redoAuto.addEventListener('click', () => {
     // голые строки текста (без наших строк аккордов) — и заново по частям песни
-    const bare = model
-      .filter((l) => l.head != null || l.text.trim() || !l.chords.length)
-      .map((l) => (l.head != null ? `${l.head}:` : l.text))
-      .join('\n');
     history.push(input.value);
-    commit(placeChords(bare, sections(), { bpm: data.bpm, meter: data.meter }));
+    commit(freshText());
   });
   addEventListener('keydown', (e) => {
     if (!editing || /input|textarea/i.test(e.target.tagName)) return;
