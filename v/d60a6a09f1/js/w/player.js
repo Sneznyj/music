@@ -35,8 +35,24 @@ function bar() {
   const prev = box.querySelector('.pl-prev');
   const next = box.querySelector('.pl-next');
   const open = box.querySelector('.pl-open');
+  const startBtn = box.querySelector('.pl-start');
+  const barEl = box.querySelector('.pl-bar');
+  const cur = box.querySelector('.pl-cur');
+  const all = box.querySelector('.pl-all');
   let shownSlug = null;
   let raf = 0;
+  let drag = null;
+  const fmt = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+  // полоска и цифры: у проигрывателя с seek() её можно тащить, duration() — длина в секундах
+  const showAt = (p) => {
+    prog.style.width = `${(p * 100).toFixed(2)}%`;
+    const d = nowPlaying().current?.duration?.() || 0;
+    cur.hidden = all.hidden = !d;
+    if (d) {
+      cur.textContent = fmt(p * d);
+      all.textContent = fmt(d);
+    }
+  };
 
   const paint = () => {
     const { current, playing } = nowPlaying();
@@ -54,15 +70,51 @@ function bar() {
     toggle.setAttribute('aria-label', playing ? 'Пауза' : 'Играть');
     prev.disabled = !current.prev;
     next.disabled = !current.next;
+    startBtn.hidden = !current.seek;
+    barEl.classList.toggle('can-seek', !!current.seek);
     cancelAnimationFrame(raf);
     const loop = () => {
-      const p = current.progress ? current.progress() : 0;
-      prog.style.width = `${(p * 100).toFixed(2)}%`;
+      if (!drag) showAt(current.progress ? current.progress() : 0);
       if (nowPlaying().playing) raf = requestAnimationFrame(loop);
     };
     loop();
   };
   addEventListener('np:change', paint);
+  const seekTo = (p) => {
+    nowPlaying().current?.seek?.(Math.max(0, Math.min(1, p)));
+    paint();
+  };
+  startBtn.addEventListener('click', () => seekTo(0));
+  const barAt = (e) => {
+    const r = barEl.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+  };
+  barEl.addEventListener('pointerdown', (e) => {
+    if (!nowPlaying().current?.seek) return;
+    e.preventDefault();
+    barEl.setPointerCapture(e.pointerId);
+    drag = { p: barAt(e) };
+    showAt(drag.p);
+  });
+  barEl.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    drag.p = barAt(e);
+    showAt(drag.p);
+  });
+  const endDrag = () => {
+    if (!drag) return;
+    const { p } = drag;
+    drag = null;
+    seekTo(p);
+  };
+  barEl.addEventListener('pointerup', endDrag);
+  barEl.addEventListener('pointercancel', () => (drag = null));
+  barEl.addEventListener('keydown', (e) => {
+    const c = nowPlaying().current;
+    if (!c?.seek || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+    e.preventDefault();
+    seekTo((c.progress?.() || 0) + (e.key === 'ArrowLeft' ? -0.05 : 0.05));
+  });
   toggle.addEventListener('click', () => {
     const { current, playing } = nowPlaying();
     if (!current) return;
@@ -118,6 +170,11 @@ function makeRiff(btn) {
     el: btn,
     playing: false,
     progress: () => lastT / tab.total,
+    duration: () => tab.total * seq.tickDur(),
+    seek(p) {
+      lastT = Math.floor(p * tab.total);
+      if (api.playing) seq.start(lastT);
+    },
     stop() {
       if (!api.playing) return;
       api.playing = false;

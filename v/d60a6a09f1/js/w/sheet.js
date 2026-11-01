@@ -3,7 +3,7 @@
 // с отсчётом и подсветкой аккордов. Оба играют одним проигрывателем, видны в нижнем плеере и в панели справа от текста.
 // Порядок игры: есть текст с аккордами — как в нём (lib/songtime.js textOrder, слова закрашивает w/karaoke.js), нет —
 // вся песня, собранная из её частей (fullForm).
-import { Seq, audio, click, drum, hush, loadDrums } from '../audio.js';
+import { Seq, audio, click, drum, hush, loadDrums, setVolume } from '../audio.js';
 import { drumHits, styleFor } from '../lib/drums.js';
 import { instChordCard } from '../lib/cards.js';
 import { diagramSVG, fretsText } from '../lib/diagram.js';
@@ -11,7 +11,7 @@ import { INSTRUMENTS, voicingFor } from '../lib/instruments.js';
 import { keyboardSVG } from '../lib/keyboard.js';
 import { METERS, PATTERNS, patternsFor } from '../lib/patterns.js';
 import * as T from '../lib/theory.js';
-import { fullForm, orderBars, textOrder } from '../lib/songtime.js';
+import { barsPasses, fullForm, orderBars, partsSummary, textOrder } from '../lib/songtime.js';
 import { pianoHush } from '../piano.js';
 import { PART_ORDER, makeBand, partsFor, preload, saveParts, timeline } from './band.js';
 import { makeKaraoke } from './karaoke.js';
@@ -42,6 +42,8 @@ function setup(root) {
     playing: false,
     mode: 'along',
     parts: partsFor(data),
+    minus: store.get('minusOn', true),
+    minusVol: store.get('minusVol', 1),
   };
 
   // ---------- тональность ----------
@@ -87,7 +89,7 @@ function setup(root) {
       update();
     }),
   );
-  const chips = [...root.querySelectorAll('.sheet .ch')];
+  let chips = [...root.querySelectorAll('.sheet .ch')];
   chips.forEach((c) => (c.dataset.o = c.textContent));
   keybar.hidden = false;
 
@@ -195,6 +197,7 @@ function setup(root) {
       secStart,
       marks,
       src,
+      form,
       fromText: !!text,
       lines: text?.lines || [],
       flat: tl.flatMap((bar, k) => bar.chords.map((c) => ({ ...c, bar: k }))),
@@ -255,6 +258,40 @@ function setup(root) {
   );
   const bplBox = el('label', { class: 'ctl-select pa-bpl', title: 'Текст бежит быстрее или медленнее, чем вы поёте? Поменяйте здесь.' }, el('span', { class: 'ctl-label' }, 'Тактов на строку'), bplSel);
   const followOn = () => store.get('karaokeFollow', true);
+  // звук минуса: выключить совсем (отсчёт и метроном остаются, слова бегут дальше) или сделать тише
+  const minusVolume = () => (st.minus ? 0.75 * st.minusVol : 0.75);
+  const onOff = (label, on) => `${label}: ${on ? 'вкл' : 'выкл'}`;
+  const minusBtn = toggle(onOff('Звук минуса', st.minus), st.minus, (v) => {
+    st.minus = v;
+    store.set('minusOn', v);
+    minusBtn.textContent = onOff('Звук минуса', v);
+    minusVol.input.disabled = !v;
+    if (!st.playing) return;
+    if (!v) {
+      hush();
+      pianoHush();
+    }
+    setVolume(minusVolume());
+  });
+  const minusVol = slider({
+    label: 'Громкость',
+    min: 5,
+    max: 100,
+    step: 5,
+    value: Math.round(st.minusVol * 100),
+    fmt: (v) => `${v}%`,
+    oninput: (v) => {
+      st.minusVol = v / 100;
+      store.set('minusVol', st.minusVol);
+      if (st.playing) setVolume(minusVolume());
+    },
+  });
+  minusVol.input.disabled = !st.minus;
+  const followBtn = toggle(onOff('Автопрокрутка', followOn()), followOn(), (v) => {
+    store.set('karaokeFollow', v);
+    followBtn.textContent = onOff('Автопрокрутка', v);
+  });
+  followBtn.title = 'Страница едет за текущей строкой текста';
   // настройки: рядом с текстом открыты всегда, на узком экране свёрнуты — панель не должна отодвигать текст
   const wide = matchMedia('(min-width: 1101px)');
   const more = el('details', { class: 'pa-more', open: wide.matches ? true : null }, el('summary', {}, 'Ритм, скорость, барабаны'));
@@ -266,6 +303,7 @@ function setup(root) {
     soon,
     el('div', { class: 'pa-time' }, timeNow, progBar, timeAll),
     status,
+    el('div', { class: 'pa-quick' }, el('div', { class: 'tg-group' }, minusBtn, followBtn), minusVol.node),
     more,
   );
   more.append(
@@ -286,7 +324,6 @@ function setup(root) {
         }),
         toggle('Метроном', st.metro, (v) => (st.metro = v)),
         toggle('Отсчёт', st.count, (v) => (st.count = v)),
-        toggle('Вести по тексту', followOn(), (v) => store.set('karaokeFollow', v)),
       ),
     ),
   );
@@ -335,7 +372,14 @@ function setup(root) {
     timeNow.textContent = fmtTime(p * orderSeconds());
     timeAll.textContent = fmtTime(orderSeconds());
   }
-  const idleText = () => (order.fromText ? `Играет как в тексте: аккорды по порядку, слова закрашиваются. Строк: ${order.lines.filter((l) => l.anchors.length).length}.` : 'Вся песня: части собраны в куплеты и припевы по кругу. Вставите текст с аккордами — заиграет в его порядке.');
+  // из чего состоит песня: по тексту человека, по сверке с источником или по схеме частей
+  const idleText = () => {
+    const parts = partsSummary(order.src.sections, order.form);
+    if (order.fromText) return `В вашем тексте: ${parts || 'части без подписей'}. Играет как в нём, слова закрашиваются.`;
+    if (data.formLoop) return `Вся песня: один круг аккордов, длина сверена с ${data.formFrom}. Вставите текст с аккордами — заиграет как в нём.`;
+    if (data.form) return `Вся песня${parts ? `: ${parts}` : ''}. Порядок сверен с ${data.formFrom}. Вставите текст с аккордами — заиграет как в нём.`;
+    return 'Вся песня: части собраны в куплеты и припевы по кругу. Вставите текст с аккордами — заиграет как в нём.';
+  };
 
   // полная версия: гитара, укулеле, клавишные, бас и барабаны в выбранной тональности
   const songPlay = document.querySelector('.song-play');
@@ -360,7 +404,7 @@ function setup(root) {
     ticksPerBeat: M.slotsPerBeat,
     bpm: () => data.bpm * st.speed,
     onTick: (t, time) => {
-      if (st.mode === 'full') return order.band.tick(t, time, st.parts, data.bpm * st.speed);
+      if (st.mode === 'full') return st.minus ? order.band.tick(t, time, st.parts, data.bpm * st.speed) : undefined;
       if (st.counting) {
         if (t >= st.from) st.counting = false;
         else {
@@ -382,9 +426,9 @@ function setup(root) {
         if (nc) next = { v: sounding(voicingOf(nc.orig)), name: nameOf(nc.orig) };
       }
       const half = 30 / (data.bpm * st.speed) / M.slotsPerBeat;
-      if (st.guitar && ch) playStepOn(st.inst, step, sounding(voicingOf(ch.orig)), nameOf(ch.orig), time, { kind: p.kind, vel: pos === 0 ? 0.95 : 0.78, beat: pos % M.slotsPerBeat === 0, half, next });
+      if (st.minus && st.guitar && ch) playStepOn(st.inst, step, sounding(voicingOf(ch.orig)), nameOf(ch.orig), time, { kind: p.kind, vel: pos === 0 ? 0.95 : 0.78, beat: pos % M.slotsPerBeat === 0, half, next });
       if (st.metro && pos % M.slotsPerBeat === 0) click(time, pos === 0, st.guitar ? 0.45 : 0.8);
-      if (st.drums) {
+      if (st.minus && st.drums) {
         const bi = Math.floor(t / M.slots);
         const next = timeline[bi + 1];
         const opts = { first: bar.bi === 0 && bar.r === 0 && bi > 0, last: !next || next.si !== bar.si };
@@ -409,7 +453,7 @@ function setup(root) {
       const k = bar.chords.findIndex((c) => pos >= c.start && pos < c.start + c.slots);
       const ch = bar.chords[k];
       const sec = order.src.sections[bar.si];
-      status.textContent = `${sec.name}${sec.repeat > 1 ? ` (${bar.r + 1}-й раз из ${sec.repeat})` : ''} · такт ${bar.bi + 1} из ${sec.bars.length}`;
+      status.textContent = `${sec.name}${bar.n > 1 ? ` (${bar.r + 1}-й раз из ${bar.n})` : ''} · такт ${bar.bi + 1} из ${sec.bars.length}`;
       if (ch && ch !== curChord?.ref) {
         const fi = order.flat.findIndex((f) => f.bar === bi && f.start === ch.start);
         curChord = { ...order.flat[fi], ref: ch };
@@ -417,15 +461,13 @@ function setup(root) {
         nextChord = list[0] || null;
         soonChords = list.slice(1);
         showNow(curChord, nextChord);
+        const was = chips.find((c) => c.classList.contains('on'));
+        chips.forEach((c) => c.classList.remove('on'));
+        const chip = chips[ch.chip];
+        chip?.classList.add('on');
         if (order.fromText) karaoke.setChord(ch.l, ch.k);
-        else {
-          // нет текста: подсвечиваем аккорд в листе «по частям» и едем за ним, только если человек на него смотрит
-          const was = chips.find((c) => c.classList.contains('on'));
-          chips.forEach((c) => c.classList.remove('on'));
-          const chip = chips[ch.chip];
-          chip.classList.add('on');
-          karaoke.keepInView(chip, was);
-        }
+        // нет текста: едем за аккордом в листе «по частям», только если человек на него смотрит
+        else karaoke.keepInView(chip, was);
       }
     },
     onEnd: () => stop(false),
@@ -473,6 +515,8 @@ function setup(root) {
       start(order.marks[Math.min(order.marks.length - 1, k + 1)], mode);
     },
     progress: () => Math.max(0, Math.min(1, (st.lastTick || 0) / (order.tl.length * M.slots))),
+    duration: () => orderSeconds(),
+    seek: (p) => seekTo(Math.floor(p * order.tl.length)),
   };
   // «Играть» в шапке: полная версия с того места, где остановились (после конца — сначала)
   const playFull = () => {
@@ -494,7 +538,7 @@ function setup(root) {
     if (st.playing) {
       const mode = st.mode;
       stop();
-      start(b, mode);
+      start(b, mode, true);
     } else {
       st.lastBar = b;
       st.lastTick = b * M.slots;
@@ -519,7 +563,7 @@ function setup(root) {
     songPlay.classList.toggle('on', on);
   };
   paintSongPlay(false);
-  function start(fromBar, mode = 'along') {
+  function start(fromBar, mode = 'along', noCount = false) {
     st.mode = mode;
     const full = mode === 'full';
     if (full) preload(st.parts);
@@ -529,8 +573,10 @@ function setup(root) {
     api.sub = `${data.artist} · ${full ? 'полная версия' : 'играть вместе'}`;
     claim(api);
     audio();
+    // громкость минуса — только пока играет песня: звук других блоков страницы не меняется
+    setVolume(minusVolume());
     st.from = fromBar * M.slots;
-    st.counting = !full && st.count;
+    st.counting = !full && st.count && !noCount;
     st.playing = true;
     st.clock = null;
     curChord = null;
@@ -546,6 +592,7 @@ function setup(root) {
     st.playing = false;
     cancelAnimationFrame(st.raf);
     seq.stop(!silence);
+    setVolume(0.75);
     if (silence) {
       hush();
       pianoHush();
@@ -564,17 +611,38 @@ function setup(root) {
     release(api);
   }
 
-  // запуск с нужной части
-  root.querySelectorAll('.sec h3').forEach((h, si) => {
-    const b = el('button', { type: 'button', class: 'sec-play', 'aria-label': `Играть с части «${data.sections[si].name}»`, title: 'Играть с этого места', html: '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>' });
-    b.addEventListener('click', () => {
-      if (st.playing) stop();
-      // порядок из текста: та же часть там, а если её нет — с начала
-      const bar = order.fromText ? order.secStart[order.src.sections.findIndex((x) => x.name === data.sections[si].name)] || 0 : order.secStart[si];
-      start(bar, 'along');
+  // лист «Аккорды по частям»: у текста — части и круги из самого текста, без текста — части песни с сайта
+  const sheetBox = root.querySelector('.sheet');
+  const sheetTitle = root.querySelector('.sheet-parts h2');
+  const siteSheet = sheetBox.innerHTML;
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  function renderSheet() {
+    let ci = 0;
+    sheetBox.innerHTML = order.fromText
+      ? order.src.sections
+          .map((sec) => {
+            const n = barsPasses(sec.bars);
+            return `<div class="sec"><h3>${esc(sec.name)}${n > 1 ? ` <span class="rep">×${n}</span>` : ''}</h3><div class="bars">${sec.bars.map((b) => `<div class="bar">${b.map((c) => `<span class="ch" data-c="${ci++}" style="flex:${c.slots}">${esc(c.name)}</span>`).join('')}</div>`).join('')}</div></div>`;
+          })
+          .join('')
+      : siteSheet;
+    if (sheetTitle) sheetTitle.textContent = order.fromText ? 'Аккорды по вашему тексту' : 'Аккорды по частям';
+    chips = [...sheetBox.querySelectorAll('.ch')];
+    chips.forEach((c) => {
+      c.dataset.o = c.textContent;
+      c.textContent = nameOf(c.dataset.o);
     });
-    h.append(b);
-  });
+    // запуск с нужной части
+    sheetBox.querySelectorAll('.sec h3').forEach((h, si) => {
+      const label = h.firstChild?.textContent?.trim() || '';
+      const b = el('button', { type: 'button', class: 'sec-play', 'aria-label': `Играть с части «${label}»`, title: 'Играть с этого места', html: '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>' });
+      b.addEventListener('click', () => {
+        if (st.playing) stop();
+        start(order.secStart[si] ?? 0, 'along');
+      });
+      h.append(b);
+    });
+  }
 
   // ---------- порядок из текста ----------
   const applyText = (force = false) => {
@@ -596,6 +664,7 @@ function setup(root) {
       st.lastTick = 0;
       karaoke.load(order.lines);
       bplBox.hidden = !order.fromText;
+      renderSheet();
       showStart();
       paintTime();
       status.textContent = idleText();

@@ -17,6 +17,7 @@ export const PART_ORDER = 'gupbd';
 
 // Такты песни по порядку исполнения (части с повторами). chip — номер аккорда в листе «по частям», l и k — аккорд над словами
 // (если порядок взят из текста). form — номера частей по порядку (fullForm — вся песня), без него — каждая часть по разу.
+// Запись формы — номер части или [номер, сколько кругов] (src/forms.json: как в песне целиком).
 // secStart — первый такт каждой части, marks — первые такты всех частей подряд.
 export function timeline(data, form = data.sections.map((_, i) => i)) {
   const tl = [];
@@ -28,11 +29,13 @@ export function timeline(data, form = data.sections.map((_, i) => i)) {
     firstChip[si] = chip;
     s.bars.forEach((b) => (chip += b.length));
   });
-  for (const si of form) {
+  for (const f of form) {
+    const si = Array.isArray(f) ? f[0] : f;
     const s = data.sections[si];
+    const n = Array.isArray(f) ? f[1] : s.repeat || 1;
     secStart[si] ??= tl.length;
     marks.push(tl.length);
-    for (let r = 0; r < (s.repeat || 1); r++) {
+    for (let r = 0; r < n; r++) {
       let c = firstChip[si];
       s.bars.forEach((b, bi) => {
         let pos = 0;
@@ -40,6 +43,7 @@ export function timeline(data, form = data.sections.map((_, i) => i)) {
           si,
           bi,
           r,
+          n,
           chords: b.map((ch) => {
             const o = { orig: ch.name, slots: ch.slots, start: pos, chip: c++, l: ch.l, k: ch.k };
             pos += ch.slots;
@@ -249,6 +253,12 @@ function previewPlayer(slug, card) {
     cards,
     playing: false,
     progress: () => (band ? lastT / band.total : 0),
+    duration: () => (band ? band.total * seq.tickDur() : 0),
+    seek(p) {
+      if (!band) return;
+      lastT = Math.floor((p * band.total) / band.M.slots) * band.M.slots;
+      if (api.playing) seq.start(lastT);
+    },
     prev: () => jump(-1),
     next: () => jump(1),
     stop() {

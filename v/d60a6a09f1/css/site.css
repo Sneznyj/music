@@ -1933,6 +1933,28 @@ select {
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }
+.pa-quick {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.pa-quick .tg-group {
+  flex-wrap: wrap;
+}
+.pa-quick .ctl-slider {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.pa-quick .ctl-slider input {
+  width: 100%;
+  min-width: 0;
+}
+.pa-quick .ctl-slider input:disabled {
+  opacity: 0.4;
+}
 .pa-more summary {
   display: none;
 }
@@ -1999,6 +2021,23 @@ select {
   }
   .songsheet.playing .pa-now {
     margin-top: 8px;
+  }
+  /* кнопки звука и автопрокрутки — одной строкой, чтобы панель оставляла место тексту */
+  .pa-quick {
+    margin-top: 8px;
+    gap: 6px;
+  }
+  .pa-quick .tg-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .pa-quick .tg {
+    padding: 5px 6px;
+    font-size: 12.5px;
+  }
+  .songsheet.playing .pa-btns .play-btn {
+    flex: 1 1 0;
   }
   /* пока тишина, панель не закрывает текст */
   .songsheet:not(.playing) .song-side {
@@ -2723,6 +2762,9 @@ select {
   width: 34px;
   height: 34px;
 }
+.pl-btn[hidden] {
+  display: none;
+}
 .pl-btn svg {
   width: 20px;
   height: 20px;
@@ -2741,13 +2783,34 @@ select {
   color: #0a1020;
   transform: scale(1.05);
 }
-.pl-bar {
+.pl-time {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  max-width: 520px;
-  height: 4px;
-  border-radius: 3px;
-  background: rgb(255 255 255 / 0.12);
-  overflow: hidden;
+  max-width: 560px;
+}
+.pl-cur,
+.pl-all {
+  flex: none;
+  font: 600 12px var(--mono);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+/* полоска тонкая, но браться за неё удобно: поле нажатия шире самой линии */
+.pl-bar {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 16px;
+  padding: 6px 0;
+  background: rgb(255 255 255 / 0.12) content-box;
+  touch-action: none;
+}
+.pl-bar.can-seek {
+  cursor: pointer;
+}
+.pl-bar.can-seek:hover {
+  padding: 5px 0;
 }
 .pl-bar i {
   display: block;
@@ -2874,14 +2937,28 @@ select {
   .pl-side {
     display: none;
   }
-  .pl-bar {
+  .player {
+    padding-top: 17px;
+    padding-bottom: 3px;
+  }
+  .pl-time {
     position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
+    left: 12px;
+    right: 12px;
+    top: 1px;
+    width: auto;
     max-width: none;
-    height: 3px;
-    border-radius: 0;
+  }
+  .pl-cur,
+  .pl-all {
+    font-size: 11px;
+  }
+  .pl-toggle {
+    width: 38px;
+    height: 38px;
+  }
+  .pl-cover {
+    align-self: center;
   }
   .pl-cover {
     width: 42px;
@@ -3529,6 +3606,22 @@ select {
 }
 .sb-gap {
   height: 0.9em;
+}
+.sb-howto {
+  margin: 10px 0 12px;
+  max-width: 620px;
+}
+.sb-howto video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+}
+.sb-howto figcaption {
+  margin-top: 6px;
 }
 .sb-own {
   margin-top: 6px;

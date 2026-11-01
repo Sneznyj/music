@@ -345,6 +345,22 @@ function setup(root) {
       const b = st.loop && seq.loop ? seq.loop.end : tab.total;
       return Math.max(0, Math.min(1, ((st.lastT ?? a) - a) / Math.max(1, b - a)));
     },
+    duration: () => {
+      const b = st.loop && seq.loop ? seq.loop.end - seq.loop.start : tab.total;
+      return b * seq.tickDur();
+    },
+    seek: (p) => {
+      const a = st.loop && seq.loop ? seq.loop.start : 0;
+      const b = st.loop && seq.loop ? seq.loop.end : tab.total;
+      const t = a + p * (b - a);
+      st.from = (tab.events.find((ev) => ev.t >= t) || tab.events[0]).t;
+      st.lastT = st.from;
+      if (st.playing) {
+        stop();
+        st.from = st.lastT;
+        start();
+      }
+    },
   };
   root.addEventListener('keydown', (e) => {
     if (e.target.closest('select, input')) return;

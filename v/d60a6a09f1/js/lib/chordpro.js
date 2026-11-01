@@ -433,18 +433,30 @@ function placeStanza(lines, sec, { bpm, beatsPerBar }) {
       best = bpl;
     }
   }
+  // Части не укладываются в целые такты на строку, но укладываются кругами: 6 строк на 2 круга по 4 такта — на круг
+  // 3 строки: 1, 1 и 2 такта. Иначе строфа растягивается на лишний круг.
+  const R = sec.repeat || 1;
+  const perPass = L % R === 0 ? L / R : 0;
+  const uneven = perPass > 1 && perPass < B && B % perPass !== 0 ? perPass : 0;
+  const barsOfLine = (li) => {
+    if (!uneven) return { from: li * best, n: best };
+    const j = li % uneven;
+    const a = Math.floor((j * B) / uneven);
+    return { from: a, n: Math.floor(((j + 1) * B) / uneven) - a };
+  };
   let last = null;
   return lines.map((text, li) => {
     const chords = [];
     const sy = syllables(text);
     const words = wordStarts(text);
     const taken = new Set();
-    for (let k = 0; k < best; k++) {
-      const bar = sec.bars[(li * best + k) % B];
+    const span = barsOfLine(li);
+    for (let k = 0; k < span.n; k++) {
+      const bar = sec.bars[(span.from + k) % B];
       for (const c of bar) {
         if (c.name === last && !(k === 0 && c.start === 0)) continue;
         last = c.name;
-        const f = (k + c.start) / best;
+        const f = (k + c.start) / span.n;
         let at = 0;
         // строка с затакта («The…», «И…»): первый аккорд — на следующем слове
         if (f === 0) at = words[PICKUP.test(text.slice(words[0] ?? 0).split(/\s/)[0]) && words.length > 2 ? 1 : 0] ?? 0;

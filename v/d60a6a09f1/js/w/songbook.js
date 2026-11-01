@@ -163,6 +163,20 @@ function setup(root) {
     return paint();
   }
 
+  // ролик «как взять слова с Genius»: грузится и играет, только пока виден (кому движение мешает — запускает сам)
+  const howto = own.querySelector('.sb-howto video');
+  if (howto) {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window)) {
+      howto.src = howto.dataset.src;
+      howto.controls = true;
+    } else
+      new IntersectionObserver(([e]) => {
+        if (!e.isIntersecting) return howto.pause();
+        if (!howto.src) howto.src = howto.dataset.src;
+        howto.play().catch(() => (howto.controls = true));
+      }).observe(howto);
+  }
+
   const input = own.querySelector('.sb-own-in');
   const summary = own.querySelector('summary');
   const delBtn = own.querySelector('.sb-own-del');

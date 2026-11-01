@@ -16,7 +16,9 @@ const secSeconds = (s, { bpm, meter }) => (s.bars.length * (s.repeat || 1) * MET
 // Порядок частей (номера в sections) на всю песню, target — примерная длина в секундах.
 // Вступление — один раз; круг от первой поющейся части до последней — сколько поместится; бридж — один раз, перед последним
 // припевом; кода — в конце. «Вся песня» и мелодии без повторов не трогаем: они уже целые. Круг (×4, ×8) и рифф — по кругу.
-export function fullForm(sections, { bpm, meter }, target = 210) {
+// data.form — порядок, сверенный с записью песни (src/forms.json, tools/structure.mjs): если есть, он и есть ответ.
+export function fullForm(sections, { bpm, meter, form }, target = 210) {
+  if (form) return form;
   const all = sections.map((_, i) => i);
   const kinds = sections.map((s) => kindOf(s.name));
   if (kinds.every((k) => k === 'other') && sections.every((s) => (s.repeat || 1) === 1)) return all;
@@ -126,8 +128,67 @@ export function textOrder(model, data, { barsPerLine = 0, cycles = 1 } = {}) {
   const firstChord = model.find((l) => l.chords?.length).chords[0].c;
   let held = fixName(firstChord);
 
+  // Строфа, у которой аккорды идут кругами какой-то части песни: длины аккордов берём из самой части, а не по слогам.
+  // Так 6 строк на два круга Em G D Em звучат ровно 8 тактами, а не 12. Не сошлось — null.
+  function alignStanza(st, sec) {
+    const cycle = sec.bars.flat();
+    const tokens = st.lines.flatMap((line) => line.chords.map((c) => ({ line, c, name: fixName(c.c) })));
+    if (!tokens.length) return null;
+    const period = cycle.reduce((n, c) => n + c.slots, 0);
+    let idx = 0;
+    let at = 0;
+    for (let j = 0; j < tokens.length; j++) {
+      if (cycle[idx % cycle.length].name !== tokens[j].name) return null;
+      tokens[j].t = at;
+      at += cycle[idx % cycle.length].slots;
+      idx++;
+      // подряд одинаковые такты в тексте записаны одним аккордом: дотягиваем его, пока в части не сменится
+      const nextName = tokens[j + 1]?.name;
+      if (nextName !== tokens[j].name) {
+        while (cycle[idx % cycle.length].name === tokens[j].name && !(idx % cycle.length === 0 && j === tokens.length - 1) && cycle.some((c) => c.name !== tokens[j].name)) {
+          at += cycle[idx % cycle.length].slots;
+          idx++;
+        }
+      }
+      tokens[j].end = at;
+    }
+    // строфа заканчивается концом круга
+    if (at % period !== 0 || at % M.slots !== 0) return null;
+    const stream = tokens.map((x) => ({ name: x.name, slots: x.end - x.t, l: x.line.li, k: x.c.k }));
+    const lines = [];
+    const beat = M.slotsPerBeat;
+    st.lines.forEach((line, n) => {
+      const own = tokens.filter((x) => x.line === line);
+      const nextOwn = st.lines.slice(n + 1).map((ln) => tokens.find((x) => x.line === ln)).find(Boolean);
+      const lastT = lines.at(-1);
+      const lineEnd = nextOwn ? nextOwn.t : at;
+      const start = own.length ? own[0].t : lastT ? lastT.to : 0;
+      if (lastT && lastT.to > start) lastT.to = start;
+      if (!line.text.trim()) {
+        lines.push({ l: line.li, start, from: start, to: lineEnd, anchors: [] });
+        return;
+      }
+      const lead = line.text.search(/\S/);
+      const anchors = [];
+      if (own.length && own[0].c.at > lead) anchors.push({ at: lead, t: start - beat });
+      else if (!own.length) anchors.push({ at: lead, t: start });
+      for (const x of own) anchors.push({ at: x.c.at, t: x.t });
+      anchors.push({ at: line.text.length, t: Math.max(anchors.at(-1).t + beat, lineEnd - beat) });
+      lines.push({ l: line.li, start, from: anchors[0].t, to: lineEnd, anchors });
+    });
+    held = tokens.at(-1).name;
+    return { stream, lines };
+  }
+
   // одна строфа на поток аккордов: { name, slots, l, k } и строки со временем от начала строфы
   function timeStanza(st) {
+    if (!barsPerLine) {
+      const named = secByName(st.head);
+      for (const sec of [named, ...data.sections].filter(Boolean)) {
+        const done = alignStanza(st, sec);
+        if (done) return done;
+      }
+    }
     const stream = [];
     const lines = [];
     let pos = 0;
@@ -242,4 +303,47 @@ export function textOrder(model, data, { barsPerLine = 0, cycles = 1 } = {}) {
 }
 
 // сколько тактов в порядке
-export const orderBars = (sections, form = sections.map((_, i) => i)) => form.reduce((n, i) => n + sections[i].bars.length * (sections[i].repeat || 1), 0);
+export const orderBars = (sections, form = sections.map((_, i) => i)) =>
+  form.reduce((n, f) => {
+    const s = sections[Array.isArray(f) ? f[0] : f];
+    return n + s.bars.length * (Array.isArray(f) ? f[1] : s.repeat || 1);
+  }, 0);
+
+const plural = (n, [one, few, many]) => (n % 10 === 1 && n % 100 !== 11 ? one : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? few : many);
+
+// Из каких частей состоит порядок: «вступление, 3 куплета, 3 припева, бридж». «Конец припева» — не отдельный припев.
+export function partsSummary(sections, form = sections.map((_, i) => i)) {
+  const NAMES = {
+    verse: ['куплет', 'куплета', 'куплетов'],
+    chorus: ['припев', 'припева', 'припевов'],
+    pre: ['предприпев', 'предприпева', 'предприпевов'],
+    bridge: ['бридж', 'бриджа', 'бриджей'],
+  };
+  const count = { verse: 0, pre: 0, chorus: 0, bridge: 0 };
+  let inst = 0;
+  let intro = false;
+  let coda = false;
+  for (const f of form) {
+    const name = sections[Array.isArray(f) ? f[0] : f].name;
+    const kind = /конец|оконч/i.test(name) ? '' : kindOf(name);
+    if (kind === 'inst') {
+      if (/вступ|intro/i.test(name)) intro = true;
+      else if (/кода|coda|outro|финал/i.test(name)) coda = true;
+      else inst++;
+    } else if (count[kind] != null) count[kind]++;
+  }
+  const out = intro ? ['вступление'] : [];
+  for (const k of ['verse', 'pre', 'chorus', 'bridge']) if (count[k]) out.push(`${count[k]} ${plural(count[k], NAMES[k])}`);
+  if (inst) out.push(`${inst} ${plural(inst, ['проигрыш', 'проигрыша', 'проигрышей'])}`);
+  if (coda) out.push('кода');
+  return out.join(', ');
+}
+
+// сколько кругов в строфе: минимальный повторяющийся кусок тактов (для подписи ×N в листе аккордов)
+export function barsPasses(bars) {
+  const sig = bars.map((b) => b.map((c) => `${c.name}.${c.slots}`).join(' '));
+  for (let p = 1; p <= sig.length / 2; p++) {
+    if (sig.length % p === 0 && sig.every((x, i) => x === sig[i % p])) return sig.length / p;
+  }
+  return 1;
+}
