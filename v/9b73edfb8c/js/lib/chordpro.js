@@ -147,12 +147,17 @@ const trimLines = (s) => s.replace(/^(\s*\n)+|(\n\s*)+$/g, '').trimEnd();
 
 const chordTag = (c, extra = '') => `<b class="sb-c" data-c="${esc(c)}"${extra}>${esc(c)}</b>`;
 
-// строка модели → html; edit — с номерами строк, аккордов и букв (для перетаскивания)
-function modelLineHTML(l, li, edit) {
-  if (l.head != null) return `<div class="sb-h">${esc(l.head)}</div>`;
+// слова куска строки, каждое со своим началом в строке: их закрашивает подсветка, как в караоке
+const wordsHTML = (text, at) => [...text.matchAll(/\S+|\s+/g)].map((m) => (/\S/.test(m[0]) ? `<span class="sb-w" data-o="${at + m.index}">${esc(m[0])}</span>` : esc(m[0]))).join('');
+
+// строка модели → html; edit — с номерами строк, аккордов и букв (для перетаскивания), play — с номерами и словами (для подсветки)
+function modelLineHTML(l, li, edit, play) {
+  const lineNo = edit || play ? ` data-l="${li}"` : '';
+  if (l.head != null) return `<div class="sb-h"${play ? lineNo : ''}>${esc(l.head)}</div>`;
   if (!l.text.trim() && !l.chords.length) return '<div class="sb-gap"></div>';
   const cs = l.chords.map((c, k) => ({ ...c, k })).sort((a, b) => a.at - b.at);
-  if (!cs.length) return `<div class="sb-line"${edit ? ` data-l="${li}"` : ''}><span class="sb-seg"${edit ? ' data-o="0"' : ''}><b class="sb-c sb-empty"></b><span class="sb-t">${esc(l.text)}</span></span></div>`;
+  const textOf = (text, at) => (play ? wordsHTML(text, at) : esc(text));
+  if (!cs.length) return `<div class="sb-line"${lineNo}><span class="sb-seg"${edit ? ' data-o="0"' : ''}><b class="sb-c sb-empty"></b><span class="sb-t">${textOf(l.text, 0)}</span></span></div>`;
   const parts = [];
   if (cs[0].at > 0) parts.push({ at: 0, chord: null, text: l.text.slice(0, cs[0].at) });
   cs.forEach((c, i) => {
@@ -160,18 +165,19 @@ function modelLineHTML(l, li, edit) {
     parts.push({ at: c.at, chord: c, text: l.text.slice(c.at, Math.max(c.at, end)) });
   });
   const segs = parts.map((p) => {
-    const ch = p.chord ? chordTag(p.chord.c, edit ? ` data-l="${li}" data-k="${p.chord.k}" tabindex="0" role="button"` : '') : '<b class="sb-c sb-empty"></b>';
-    return `<span class="sb-seg"${edit ? ` data-o="${p.at}"` : ''}>${ch}<span class="sb-t">${esc(p.text) || '&nbsp;'}</span></span>`;
+    const attrs = edit ? ` data-l="${li}" data-k="${p.chord?.k}" tabindex="0" role="button"` : play ? ` data-l="${li}" data-k="${p.chord?.k}"` : '';
+    const ch = p.chord ? chordTag(p.chord.c, attrs) : '<b class="sb-c sb-empty"></b>';
+    return `<span class="sb-seg"${edit ? ` data-o="${p.at}"` : ''}>${ch}<span class="sb-t">${textOf(p.text, p.at) || '&nbsp;'}</span></span>`;
   });
-  return `<div class="sb-line${l.text.trim() ? '' : ' sb-only'}"${edit ? ` data-l="${li}"` : ''}>${segs.join('')}</div>`;
+  return `<div class="sb-line${l.text.trim() ? '' : ' sb-only'}"${lineNo}>${segs.join('')}</div>`;
 }
 
-export function modelHTML(model, { edit = false } = {}) {
-  return model.map((l, i) => modelLineHTML(l, i, edit)).join('');
+export function modelHTML(model, { edit = false, play = false } = {}) {
+  return model.map((l, i) => modelLineHTML(l, i, edit, play)).join('');
 }
 
 export function lineHTML(line) {
-  return modelLineHTML(parseLines(line)[0] || { text: '', chords: [] }, 0, false);
+  return modelLineHTML(parseLines(line)[0] || { text: '', chords: [] }, 0, false, false);
 }
 
 export function textHTML(text) {

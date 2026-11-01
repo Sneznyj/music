@@ -6,6 +6,7 @@ import { icon } from '../lib/icons.js';
 import { drumHits, styleFor } from '../lib/drums.js';
 import { voicingFor } from '../lib/instruments.js';
 import { METERS, PATTERNS } from '../lib/patterns.js';
+import { fullForm } from '../lib/songtime.js';
 import * as T from '../lib/theory.js';
 import { loadPiano, pianoHush, pianoNote } from '../piano.js';
 import { claim, playStepOn, release, store } from './util.js';
@@ -14,17 +15,25 @@ const mod12 = (v) => ((v % 12) + 12) % 12;
 export const PART_NAMES = { g: 'Гитара', u: 'Укулеле', p: 'Клавишные', b: 'Бас', d: 'Барабаны' };
 export const PART_ORDER = 'gupbd';
 
-// Такты песни по порядку исполнения (части с повторами). chip — номер аккорда в листе «по частям».
-export function timeline(data) {
+// Такты песни по порядку исполнения (части с повторами). chip — номер аккорда в листе «по частям», l и k — аккорд над словами
+// (если порядок взят из текста). form — номера частей по порядку (fullForm — вся песня), без него — каждая часть по разу.
+// secStart — первый такт каждой части, marks — первые такты всех частей подряд.
+export function timeline(data, form = data.sections.map((_, i) => i)) {
   const tl = [];
   const secStart = [];
+  const marks = [];
+  const firstChip = [];
   let chip = 0;
   data.sections.forEach((s, si) => {
-    const first = chip;
+    firstChip[si] = chip;
     s.bars.forEach((b) => (chip += b.length));
+  });
+  for (const si of form) {
+    const s = data.sections[si];
+    secStart[si] ??= tl.length;
+    marks.push(tl.length);
     for (let r = 0; r < (s.repeat || 1); r++) {
-      if (r === 0) secStart[si] = tl.length;
-      let c = first;
+      let c = firstChip[si];
       s.bars.forEach((b, bi) => {
         let pos = 0;
         tl.push({
@@ -32,15 +41,15 @@ export function timeline(data) {
           bi,
           r,
           chords: b.map((ch) => {
-            const o = { orig: ch.name, slots: ch.slots, start: pos, chip: c++ };
+            const o = { orig: ch.name, slots: ch.slots, start: pos, chip: c++, l: ch.l, k: ch.k };
             pos += ch.slots;
             return o;
           }),
         });
       });
     }
-  });
-  return { tl, secStart };
+  }
+  return { tl, secStart, marks };
 }
 
 // Какие инструменты звучат: выбор человека для этой песни или состав оригинала.
@@ -57,10 +66,10 @@ export function preload(parts) {
 }
 
 // key() → { tr, capo }: сдвиг тональности от оригинала и каподастр гитары (на странице песни их выбирает человек).
-// pattern() → id рисунка песни.
-export function makeBand(data, { key = () => ({ tr: 0, capo: data.capo || 0 }), pattern = () => data.pattern } = {}) {
+// pattern() → id рисунка песни. form — порядок частей (см. timeline), по умолчанию вся песня.
+export function makeBand(data, { key = () => ({ tr: 0, capo: data.capo || 0 }), pattern = () => data.pattern, form = fullForm(data.sections, data) } = {}) {
   const M = METERS[data.meter];
-  const { tl, secStart } = timeline(data);
+  const { tl, secStart } = timeline(data, form);
   const altPos = data.meter === '6/8' ? 3 : M.slots / 2;
   const cache = new Map();
 

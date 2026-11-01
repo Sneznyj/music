@@ -7,7 +7,7 @@
 // Текст хранится только в браузере человека. На привязанных устройствах Павла (ключ из ссылки #mytexts=…) он ещё и
 // уходит в «Мои тексты» (worker/mytexts) и виден везде.
 import { instChordCard } from '../lib/cards.js';
-import { cleanPasted, fitKey, hasChords, isChord, modelHTML, parseLines, placeChords, serialize, textHTML, transposeText } from '../lib/chordpro.js';
+import { cleanPasted, fitKey, hasChords, isChord, modelHTML, parseLines, placeChords, serialize, transposeText } from '../lib/chordpro.js';
 import { icon } from '../lib/icons.js';
 import { voicingFor } from '../lib/instruments.js';
 import * as T from '../lib/theory.js';
@@ -142,11 +142,26 @@ function setup(root) {
   const paintFull = () => fullBtn && (fullBtn.textContent = isFull() ? 'Свернуть' : 'На весь экран');
   document.addEventListener('fullscreenchange', paintFull);
 
+  // текст на экране — для плеера (w/sheet.js): аккорды играют в его порядке, слова закрашиваются
+  const publish = (model, site = false) => {
+    window.__songText = { model, site };
+    dispatchEvent(new CustomEvent('song:text'));
+  };
+
   // ---------- свой текст ----------
   const own = root.querySelector('.sb-own');
   const editBtn = root.querySelector('.sb-edit');
   let editing = false;
-  if (!own) return paint();
+  if (!own) {
+    // текст с сайта (общественное достояние): та же разметка, что у своего текста, чтобы его можно было подсвечивать
+    const body = root.querySelector('.sb-body');
+    if (body && data.lyrics) {
+      const model = parseLines(data.lyrics);
+      body.innerHTML = modelHTML(model, { play: true });
+      publish(model, true);
+    }
+    return paint();
+  }
 
   const input = own.querySelector('.sb-own-in');
   const summary = own.querySelector('summary');
@@ -169,13 +184,14 @@ function setup(root) {
     const has = !!text.trim();
     if (!keep) model = has ? parseLines(text) : [];
     const note = sync ? `<span class="sb-sync${sync === 'off' ? ' off' : ''}">${SYNC[sync]}</span>` : '';
-    ownView.innerHTML = has ? `${note ? `<div class="sb-h">Ваш текст${note}</div>` : ''}${editing ? modelHTML(model, { edit: true }) : textHTML(text)}` : '';
+    ownView.innerHTML = has ? `${note ? `<div class="sb-h">Ваш текст${note}</div>` : ''}${modelHTML(model, editing ? { edit: true } : { play: true })}` : '';
     ownView.hidden = !has;
     ownView.classList.toggle('sb-editing', editing && has);
     delBtn.hidden = !has;
     editBtn.hidden = !has;
     summary.textContent = has ? 'Изменить или заменить текст' : 'Вставить текст песни';
     paint();
+    publish(model);
   };
   const setSync = (s) => {
     sync = s;

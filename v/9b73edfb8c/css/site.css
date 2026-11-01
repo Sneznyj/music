@@ -1793,48 +1793,82 @@ select {
   font-size: 14px;
   margin: 4px 0 0;
 }
-.playalong {
+.song-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 24px;
+  align-items: start;
+  margin-top: 18px;
+}
+.song-main {
+  min-width: 0;
+}
+/* панель «Играть вместе» стоит справа от текста и едет вместе с ним */
+.song-side {
+  --pa-top: calc(var(--top-h) + 58px + var(--kb-h, 0px) + 8px);
   position: sticky;
-  top: calc(var(--top-h) + 54px);
+  top: var(--pa-top);
   z-index: 5;
-  margin-bottom: 14px;
-  padding: 14px 16px;
+  max-height: calc(100vh - var(--pa-top) - 12px);
+  overflow-y: auto;
+}
+.has-player .song-side {
+  max-height: calc(100vh - var(--pa-top) - 92px);
+}
+.playalong {
+  padding: 14px;
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  backdrop-filter: blur(10px);
+  background: var(--surface);
   border: 1px solid var(--line-strong);
   box-shadow: var(--shadow);
 }
-.pa-ctl {
+.pa-title {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+.pa-btns {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px 16px;
+  gap: 8px;
   align-items: center;
+}
+.pa-btns .play-btn {
+  flex: 1 1 100%;
+  justify-content: center;
+}
+.pa-btns .btn-small {
+  flex: 1 1 0;
+  justify-content: center;
+}
+.pa-btns .btn.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 .pa-now {
-  display: none;
-  grid-template-columns: 110px 96px minmax(0, 1fr);
-  gap: 14px;
-  align-items: center;
-  margin-top: 12px;
-}
-.songsheet.playing .pa-now {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-items: stretch;
+  margin-top: 12px;
 }
 .pa-card {
   display: flex;
   flex-direction: column;
   align-items: center;
+  min-width: 0;
   padding: 6px 8px;
   border-radius: 3px;
   background: var(--surface-2);
+}
+.pa-card svg {
+  max-width: 100%;
 }
 .pa-cur {
   outline: 2px solid var(--accent);
 }
 .pa-next {
-  opacity: 0.7;
-  transform: scale(0.92);
+  opacity: 0.75;
 }
 .pa-label {
   font-size: 11px;
@@ -1850,19 +1884,125 @@ select {
   padding: 30px 0;
   color: var(--ink-3);
 }
-.pa-pos {
-  font-size: 15px;
+.pa-soon {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  margin-top: 10px;
+  min-height: 1.4em;
+  color: var(--ink-2);
 }
-@media (max-width: 640px) {
+.pa-soon b {
+  font: 700 14px var(--mono);
+}
+.pa-time {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+.pa-t {
+  font: 600 12px var(--mono);
+  color: var(--ink-3);
+}
+.pa-prog {
+  height: 14px;
+  padding: 5px 0;
+  background-clip: content-box;
+  background-color: var(--line-strong);
+  cursor: pointer;
+}
+.pa-prog i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+}
+.pa-pos {
+  margin-top: 8px;
+  font-size: 14px;
+  min-height: 2.6em;
+}
+.pa-ctl {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.pa-more summary {
+  display: none;
+}
+.pa-ctl .ctl-select[hidden] {
+  display: none;
+}
+.pa-ctl .ctl-select .ctl-label {
+  flex: none;
+}
+.pa-ctl .ctl-slider {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.pa-ctl .ctl-slider input {
+  width: 100%;
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  /* колонкой, а не сеткой: в сетке панель прилипала бы только в пределах своей строки */
+  .song-cols {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  /* узкий экран: панель над текстом; пока песня играет — только кнопки и аккорды, чтобы текст было видно */
+  .song-side {
+    order: -1;
+    --pa-top: calc(var(--top-h) + 58px);
+    max-height: none;
+    overflow: visible;
+  }
+  .has-player .song-side {
+    max-height: none;
+  }
   .playalong {
-    padding: 12px;
+    padding: 10px 12px;
   }
-  .pa-now {
-    grid-template-columns: 92px 80px minmax(0, 1fr);
-    gap: 8px;
+  .pa-title,
+  .pa-card svg,
+  .pa-card .kb {
+    display: none;
   }
-  .pa-ctl .ctl-slider input {
-    width: 110px;
+  .pa-pos {
+    min-height: 0;
+  }
+  .pa-more summary {
+    display: list-item;
+    margin-top: 8px;
+    font-size: 14px;
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+  .pa-more .pa-ctl {
+    margin-top: 8px;
+    padding-top: 0;
+    border-top: 0;
+  }
+  .songsheet.playing .pa-more,
+  .songsheet.playing .pa-soon,
+  .songsheet.playing .pa-pos {
+    display: none;
+  }
+  .songsheet.playing .pa-now {
+    margin-top: 8px;
+  }
+  /* пока тишина, панель не закрывает текст */
+  .songsheet:not(.playing) .song-side {
+    position: static;
   }
 }
 
@@ -2878,10 +3018,7 @@ select {
   font: 600 6.5px var(--mono);
 }
 .pa-card .kb {
-  width: 150px;
-}
-.inst-piano .pa-now {
-  grid-template-columns: 170px 150px minmax(0, 1fr);
+  width: 100%;
 }
 .courses {
   display: grid;
@@ -3646,9 +3783,46 @@ select {
 #chords.sb-max > .keybar {
   top: 0;
 }
-/* «Играть вместе» прилипает под панелью тональности */
-#chords .playalong {
-  top: calc(var(--top-h) + 58px + var(--kb-h, 0px) + 6px);
+#chords:fullscreen .song-side,
+#chords.sb-max .song-side {
+  --pa-top: calc(var(--kb-h, 0px) + 8px);
+}
+/* как в караоке: слова закрашиваются, аккорд над ними горит, строка видна */
+.sb-line[data-l] {
+  border-radius: 2px;
+  transition: background 0.2s;
+}
+.sb-line.on {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: -6px 0 0 color-mix(in srgb, var(--accent) 12%, transparent), inset 3px 0 0 var(--accent);
+}
+.sb-w.kd {
+  color: var(--accent-text);
+}
+.sb-w.kn {
+  background: linear-gradient(90deg, var(--accent-text) var(--p, 0%), var(--ink) var(--p, 0%));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.sb-c.on {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 2px;
+}
+.sb-h[data-l] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sb-h .sec-play {
+  margin-left: 0;
+  width: 24px;
+  height: 24px;
+}
+.sb-h .sec-play svg {
+  width: 12px;
+  height: 12px;
 }
 
 /* ---------- вокал на странице песни ---------- */
@@ -4099,9 +4273,6 @@ select {
   #chords > .keybar .kb-btn {
     width: 30px;
     height: 30px;
-  }
-  #chords .playalong {
-    top: calc(var(--top-h) + 58px);
   }
   .sb-full {
     display: none;
