@@ -433,7 +433,7 @@ function setup(root) {
       const half = 30 / (data.bpm * st.speed) / M.slotsPerBeat;
       // часть с партией из записи: гитара с ритмом песни играет её; выбрали другой ритм — играем его по аккордам
       const rs = st.inst === 'guitar' && st.pattern === data.pattern ? riffSlot(riffs, order.src.sections[bar.si], bar, pos) : null;
-      if (st.minus && st.guitar && rs) playRiff(rs, pos, time, 60 / (data.bpm * st.speed) / M.slotsPerBeat, { shift: st.tr, vel: 0.85 });
+      if (st.minus && st.guitar && rs) playRiff(rs, pos, time, 60 / (data.bpm * st.speed) / M.slotsPerBeat, { shift: data.capo + st.tr, vel: 0.85 });
       else if (st.minus && st.guitar && ch) playStepOn(st.inst, step, sounding(voicingOf(ch.orig)), nameOf(ch.orig), time, { kind: p.kind, vel: pos === 0 ? 0.95 : 0.78, beat: pos % M.slotsPerBeat === 0, half, next });
       if (st.metro && pos % M.slotsPerBeat === 0) click(time, pos === 0, st.guitar ? 0.45 : 0.8);
       if (st.minus && st.drums) {

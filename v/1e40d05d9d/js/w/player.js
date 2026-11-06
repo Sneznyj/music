@@ -202,7 +202,7 @@ function makeRiff(btn) {
     bpm: () => data.bpm,
     onTick: (t, time) => {
       const i = evAt.get(t);
-      if (i != null) playTabEvent(tab.events[i], time);
+      if (i != null) playTabEvent(tab.events[i], time, 0.85, 'guitar', { shift: data.capo || 0 });
     },
     onVisual: (t) => {
       lastT = t;

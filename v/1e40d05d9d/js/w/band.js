@@ -32,7 +32,7 @@ export function riffSlot(riffs, sec, bar, pos) {
   if (!bars?.length) return null;
   return bars[((bar.r || 0) * sec.bars.length + bar.bi) % bars.length].filter((x) => x.at >= pos && x.at < pos + 1);
 }
-// shift — сдвиг тональности от записи в полутонах
+// shift — сдвиг в полутонах: каподастр песни (лады партии считаются от него) и смена тональности
 export function playRiff(list, pos, time, slotSec, { shift = 0, vel = 0.8 } = {}) {
   for (const x of list) playTabEvent(x.ev, time + (x.at - pos) * slotSec, x.at === 0 ? vel * 1.12 : vel, 'guitar', { shift, keep: true });
 }
@@ -153,7 +153,7 @@ export function makeBand(data, { key = () => ({ tr: 0, capo: data.capo || 0 }), 
       const vel = (pos === 0 ? 0.8 : 0.66) * (lead === 'g' ? 1 : 0.72);
       // ведущая гитара в части с партией из записи играет её (в своей тональности), остальное — по аккордам
       const rs = lead === 'g' ? riffSlot(riffs, data.sections[bar.si], bar, pos) : null;
-      if (rs) playRiff(rs, pos, time, slotSec, { shift: key().tr, vel: 0.76 });
+      if (rs) playRiff(rs, pos, time, slotSec, { shift: (data.capo || 0) + key().tr, vel: 0.76 });
       else playStepOn('guitar', step, a.g, a.shape, time, { kind: p.kind, vel, beat, half, next: nextFor('guitar') });
     }
     if (parts.includes('u')) {

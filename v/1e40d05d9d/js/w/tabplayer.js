@@ -234,7 +234,8 @@ function setup(root) {
     }
   }
 
-  const playEvent = (ev, when, vel) => playTabEvent(ev, when, vel, inst);
+  // таб песни с каподастром: лады от каподастра, звучит выше
+  const playEvent = (ev, when, vel) => playTabEvent(ev, when, vel, inst, { shift: data.capo || 0 });
 
   // ---------- воспроизведение ----------
   const barOf = (t) => tab.bars.find((b) => t >= b.start && t < b.start + b.len) || tab.bars[0];
