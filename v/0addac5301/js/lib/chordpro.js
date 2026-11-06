@@ -247,7 +247,7 @@ const VOWELS = /[аеёиоуыэюяaeiouyäöüéèàáíóú]/i;
 const LETTER = /[a-zа-яё]/i;
 export function kindOf(name) {
   const n = String(name || '').toLowerCase();
-  if (/вступ|проигр|соло|solo|intro|outro|кода|coda|оконч|финал|ending|instrument|interlude|рифф|riff|перебивк|break/.test(n)) return 'inst';
+  if (/вступ|проигр|соло|solo|intro|outro|кода|coda|оконч|концовк|финал|ending|instrument|interlude|рифф|riff|перебивк|break/.test(n)) return 'inst';
   if (/пред.?припев|pre.?chorus|распев/.test(n)) return 'pre';
   if (/припев|chorus|refrain|hook/.test(n)) return 'chorus';
   if (/бридж|bridge|middle|связк|переход/.test(n)) return 'bridge';
@@ -277,7 +277,8 @@ const PICKUP = /^(the|a|an|to|oh|and|but|we'?ll|i'?m|i|in|on|of|so|there|then|wh
 const wordStarts = (line) => [...line.matchAll(/[^\s,.!?;:«»"()—–-]+/g)].map((m) => m.index);
 const norm = (s) => s.toLowerCase().replace(/[^a-zа-яё]+/g, ' ').trim();
 
-export function placeChords(text, sections, { bpm = 100, meter = '4/4' } = {}) {
+// form — порядок частей записи (src/forms.json): вступление, проигрыши и концовка встают туда, где они звучат в песне
+export function placeChords(text, sections, { bpm = 100, meter = '4/4', form = null } = {}) {
   if (!sections?.length) return text;
   const beatsPerBar = meter === '6/8' ? 2 : Number(meter.split('/')[0]) || 4;
   const secs = sections.map((s, i) => ({
@@ -380,16 +381,27 @@ export function placeChords(text, sections, { bpm = 100, meter = '4/4' } = {}) {
   };
   const insertedInst = new Set();
   const instBetween = (a, b) => secs.filter((s) => s.kind === 'inst' && s.i > a && s.i < b && s.i > firstVocal && s.i < lastVocal && !insertedInst.has(s.i));
+  // по форме записи: идём по ней вместе со строфами; инструментальные части между прошлой строфой и этой — вставляем
+  const order = form?.length ? form.map((f) => (Array.isArray(f) ? f[0] : f)).filter((i) => secs[i]) : null;
+  let fpos = -1;
+  const fromForm = (si, insert = true) => {
+    const j = order.findIndex((x, k) => k > fpos && x === si);
+    if (j < 0) return;
+    if (insert) for (const x of order.slice(fpos + 1, j)) if (secs[x].kind === 'inst') instLine(secs[x]);
+    fpos = j;
+  };
   // вступление
-  for (const s of secs) if (s.kind === 'inst' && s.i < firstVocal) {
-    instLine(s);
-    insertedInst.add(s.i);
-  }
+  if (!order)
+    for (const s of secs) if (s.kind === 'inst' && s.i < firstVocal) {
+      instLine(s);
+      insertedInst.add(s.i);
+    }
   let prev = -1;
   for (const { st, sec, inst, skip } of plan) {
     if (skip) continue;
     if (inst) {
       if (sec) {
+        if (order) fromForm(sec.i, false);
         instLine(sec);
         insertedInst.add(sec.i);
       } else out.push(`${st.head}:`, '');
@@ -399,7 +411,8 @@ export function placeChords(text, sections, { bpm = 100, meter = '4/4' } = {}) {
       out.push(`${st.head}:`, '');
       continue;
     }
-    if (prev >= 0) for (const s of instBetween(prev, sec.i > prev ? sec.i : lastVocal + 1)) {
+    if (order) fromForm(sec.i);
+    else if (prev >= 0) for (const s of instBetween(prev, sec.i > prev ? sec.i : lastVocal + 1)) {
       instLine(s);
       insertedInst.add(s.i);
     }
@@ -408,8 +421,9 @@ export function placeChords(text, sections, { bpm = 100, meter = '4/4' } = {}) {
     const model = placeStanza(st.lines, sec, { bpm, beatsPerBar });
     out.push(serialize(model), '');
   }
-  // кода, окончание
-  for (const s of secs) if (s.kind === 'inst' && s.i > lastVocal && !insertedInst.has(s.i)) instLine(s);
+  // кода, окончание: по форме — всё инструментальное после последней строфы
+  if (order) for (const x of order.slice(fpos + 1)) if (secs[x].kind === 'inst') instLine(secs[x]);
+  if (!order) for (const s of secs) if (s.kind === 'inst' && s.i > lastVocal && !insertedInst.has(s.i)) instLine(s);
   return trimLines(out.join('\n').replace(/\n{3,}/g, '\n\n'));
 }
 

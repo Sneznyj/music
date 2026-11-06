@@ -274,7 +274,7 @@ function setup(root) {
         say(`Аккорды во вставленном тексте были в другой тональности — переложил их на ${Math.abs(fit.shift)} ${semis(Math.abs(fit.shift))} ${fit.shift > 0 ? 'выше' : 'ниже'}, чтобы они совпали с аккордами песни на этой странице. <button class="linkbtn sb-undo-fit" type="button">Вернуть как было</button>`);
       } else say('Аккорды из вставленного текста оставлены как есть. Любой можно перетащить или заменить: «Править аккорды».');
     } else {
-      text = placeChords(text, sections(), { bpm: data.bpm, meter: data.meter });
+      text = placeChords(text, sections(), { bpm: data.bpm, meter: data.meter, form: data.form });
       say('Аккорды расставлены по частям песни автоматически. Если где-то аккорд стоит не над тем слогом — нажмите «Править аккорды» и перетащите его.');
     }
     history = [];
@@ -298,7 +298,7 @@ function setup(root) {
       .filter((l) => l.head == null && l.text.trim())
       .map((l) => `${l.text.trim()}|${l.chords.map((c) => c.c).join(' ')}`)
       .join('\n');
-  const freshText = () => placeChords(bareText(), sections(), { bpm: data.bpm, meter: data.meter });
+  const freshText = () => placeChords(bareText(), sections(), { bpm: data.bpm, meter: data.meter, form: data.form });
   // и у песен, где фраза кончается проигрышем (Knockin' on Heaven's Door: «G D | Am»), — раньше проигрыш уезжал на следующую строку
   const tails = data.sections.some((s) => phraseOf(s.bars));
   function offerFresh() {
