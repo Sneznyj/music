@@ -420,6 +420,9 @@ function rowsPerLine(lines, rows) {
   const R = rows?.length || 0;
   if (!R || !L) return null;
   if (L % R === 0) return lines.map((_, i) => rows[i % R]);
+  // в сверке строки всей песни, а куплеты одинаковые (строки повторяются через L): берём один круг
+  const key = (r) => r.join(' ');
+  if (R > L && R % L === 0 && rows.every((r, i) => key(r) === key(rows[i % L]))) return lines.map((_, i) => rows[i]);
   if (L < R && R <= 2 * L) {
     const bySyl = lines.map((t, i) => ({ i, n: syllables(t).length })).sort((a, b) => b.n - a.n);
     const twice = new Set(bySyl.slice(0, R - L).map((x) => x.i));
@@ -433,20 +436,47 @@ function rowsPerLine(lines, rows) {
   return null;
 }
 
-// одна строка с заданными аккордами: первый — после затакта, остальные — поровну по слогам
-function placeRow(text, names) {
+// Проигрыш в конце фразы (Павел, 06.11.2026, Knockin' on Heaven's Door: «G, D — всё правильно, потом Am — небольшой
+// проигрыш, а у нас Am на другой строчке»). Часть идёт фразами по P тактов, и каждая кончается тактом с одним аккордом после
+// такта с несколькими: «G D | Am | G D | C». Строка текста берёт всю фразу, слова поются на первых тактах, а последний
+// аккорд звучит после слов — он стоит в конце строки (при игре слова кончаются к его началу). tail — такты-проигрыши.
+export function phraseOf(bars) {
+  const B = bars.length;
+  const tail = bars.map((b, i) => i > 0 && b.length === 1 && bars[i - 1].length >= 2);
+  for (const P of [2, 3, 4]) {
+    if (B % P || B < P || tail[0]) continue;
+    let ok = true;
+    for (let k = 1; k <= B / P && ok; k++) {
+      if (!tail[k * P - 1]) ok = false;
+      for (let j = (k - 1) * P; j < k * P - 1; j++) if (tail[j]) ok = false;
+    }
+    if (ok) return { P, tail };
+  }
+  return null;
+}
+
+// слогов на долю в обычном пении при этом темпе (медленно — больше слогов на долю)
+const sylRate = (bpm) => (bpm >= 140 ? 1 : bpm >= 105 ? 1.4 : bpm >= 80 ? 1.8 : 2.2);
+// строка успевает спеться до проигрыша: слогам хватает долей до него (с запасом в четверть)
+const fitsBefore = (text, beats, bpm) => syllables(text).length / sylRate(bpm) <= beats * 1.25;
+
+// одна строка с заданными аккордами: первый — после затакта, остальные — поровну по слогам; tail — последний аккорд
+// звучит после слов (проигрыш), он встаёт в конец строки
+function placeRow(text, names, tail = false) {
   const sy = syllables(text);
   const words = wordStarts(text);
   const taken = new Set();
   const chords = [];
+  const sung = tail && names.length > 1 ? names.length - 1 : names.length;
   names.forEach((name, k) => {
     let at = 0;
-    if (k === 0) at = words[PICKUP.test(text.slice(words[0] ?? 0).split(/\s/)[0]) && words.length > 2 ? 1 : 0] ?? 0;
+    if (k >= sung) at = text.length;
+    else if (k === 0) at = words[PICKUP.test(text.slice(words[0] ?? 0).split(/\s/)[0]) && words.length > 2 ? 1 : 0] ?? 0;
     else if (sy.length) {
-      const s = sy[Math.min(sy.length - 1, Math.round((k / names.length) * sy.length))];
+      const s = sy[Math.min(sy.length - 1, Math.round((k / sung) * sy.length))];
       at = words.filter((x) => x <= s.at).at(-1) ?? 0;
       if (taken.has(at)) at = words.find((x) => x > at && !taken.has(x)) ?? (taken.has(s.at) ? text.length : s.at);
-    } else if (text.length) at = Math.round((k / names.length) * text.length);
+    } else if (text.length) at = Math.round((k / sung) * text.length);
     while (taken.has(at) && at < text.length) at++;
     taken.add(at);
     chords.push({ at, c: name });
@@ -455,24 +485,59 @@ function placeRow(text, names) {
   return { text, chords };
 }
 
+// аккорды строки из сверки — в круге части: сколько долей у каждого и стоит ли последний один в такте-проигрыше
+function rowTail(names, sec, beatsPerBar, text, bpm) {
+  const ph = phraseOf(sec.bars);
+  if (!ph || names.length < 2) return false;
+  // круг части аккордами подряд (одинаковые соседние — один), у каждого — такт начала и длина в долях
+  const items = [];
+  sec.bars.forEach((b, bi) =>
+    b.forEach((c, ci) => {
+      const beats = ((b[ci + 1]?.start ?? 1) - c.start) * beatsPerBar;
+      if (items.length && items.at(-1).name === c.name) items.at(-1).beats += beats;
+      else items.push({ name: c.name, bar: bi, alone: b.length === 1, beats });
+    }),
+  );
+  const n = items.length;
+  for (let s = 0; s < n; s++) {
+    if (!names.every((x, k) => items[(s + k) % n].name === x)) continue;
+    const last = items[(s + names.length - 1) % n];
+    if (!last.alone || !ph.tail[last.bar]) return false;
+    const before = names.slice(0, -1).reduce((a, _, k) => a + items[(s + k) % n].beats, 0);
+    return fitsBefore(text, before, bpm);
+  }
+  return false;
+}
+
 // одна строфа на одну часть песни
 function placeStanza(lines, sec, { bpm, beatsPerBar }) {
   const fromRows = rowsPerLine(lines, sec.rows);
-  if (fromRows) return lines.map((text, li) => placeRow(text, fromRows[li]));
+  if (fromRows) return lines.map((text, li) => placeRow(text, fromRows[li], rowTail(fromRows[li], sec, beatsPerBar, text, bpm)));
   const B = sec.bars.length;
   const L = lines.length;
   const syl = lines.map((l) => syllables(l).length);
   const avg = syl.reduce((a, b) => a + b, 0) / Math.max(1, L);
   // сколько слогов обычно приходится на долю: в медленных песнях больше, в быстрых меньше
-  const want = bpm >= 140 ? 1 : bpm >= 105 ? 1.4 : bpm >= 80 ? 1.8 : 2.2;
+  const want = sylRate(bpm);
+  // фразы с проигрышем в конце: строка — целая фраза (или несколько), поётся без такта-проигрыша
+  const ph = phraseOf(sec.bars);
   let best = 1;
   let bestPen = Infinity;
   for (const bpl of [1, 2, 4, 8]) {
     // главное — чтобы строфа заняла часть целиком (или часть с повторами); слоги решают, только если вариантов несколько
     const covered = L * bpl;
     const total = B * sec.repeat;
-    const struct = covered === B ? 0 : covered === total ? 0.3 : covered % B === 0 || B % covered === 0 ? 2 : 4;
-    const dens = avg / (bpl * beatsPerBar);
+    let struct = covered === B ? 0 : covered === total ? 0.3 : covered % B === 0 || B % covered === 0 ? 2 : 4;
+    let sung = bpl * beatsPerBar;
+    if (ph) {
+      // строка, которая начиналась бы с проигрыша, — ошибка; строфа на несколько кругов фраз — нормально
+      if (bpl % ph.P) struct += 1.5;
+      else {
+        if (covered % B === 0) struct = Math.min(struct, 0.3);
+        sung -= (bpl / ph.P) * beatsPerBar;
+      }
+    }
+    const dens = avg / sung;
     const pen = struct + Math.abs(Math.log2((dens || want) / want)) * 0.5;
     if (pen < bestPen - 1e-9) {
       bestPen = pen;
@@ -497,12 +562,19 @@ function placeStanza(lines, sec, { bpm, beatsPerBar }) {
     const words = wordStarts(text);
     const taken = new Set();
     const span = barsOfLine(li);
+    // последний такт строки — проигрыш фразы, а слова успевают до него: его аккорд — после слов, слова — на остальные такты
+    const tailBar = ph && span.n > 1 && ph.tail[(span.from + span.n - 1) % B] && fitsBefore(text, (span.n - 1) * beatsPerBar, bpm);
+    const sungBars = tailBar ? span.n - 1 : span.n;
     for (let k = 0; k < span.n; k++) {
       const bar = sec.bars[(span.from + k) % B];
       for (const c of bar) {
         if (c.name === last && !(k === 0 && c.start === 0)) continue;
         last = c.name;
-        const f = (k + c.start) / span.n;
+        if (tailBar && k === span.n - 1) {
+          chords.push({ at: text.length, c: c.name });
+          continue;
+        }
+        const f = (k + c.start) / sungBars;
         let at = 0;
         // строка с затакта («The…», «И…»): первый аккорд — на следующем слове
         if (f === 0) at = words[PICKUP.test(text.slice(words[0] ?? 0).split(/\s/)[0]) && words.length > 2 ? 1 : 0] ?? 0;

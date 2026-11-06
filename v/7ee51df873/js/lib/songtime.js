@@ -214,7 +214,8 @@ export function textOrder(model, data, { barsPerLine = 0, cycles = 1 } = {}) {
       if (own.length && own[0].c.at > lead) anchors.push({ at: lead, t: start - beat });
       else if (!own.length) anchors.push({ at: lead, t: start });
       for (const x of own) anchors.push({ at: x.c.at, t: x.t });
-      anchors.push({ at: line.text.length, t: singEnd(line.text, anchors.at(-1), lineEnd) });
+      // аккорд после слов (проигрыш в конце строки): слова кончаются к его началу
+      if (anchors.at(-1).at < line.text.trimEnd().length) anchors.push({ at: line.text.length, t: singEnd(line.text, anchors.at(-1), lineEnd) });
       lines.push({ l: line.li, start, from: anchors[0].t, to: lineEnd, anchors });
     });
     held = tokens.at(-1).name;
@@ -257,17 +258,26 @@ export function textOrder(model, data, { barsPerLine = 0, cycles = 1 } = {}) {
         lines.push({ l: line.li, start, from: start, to: pos, anchors: [] });
         continue;
       }
-      const need = Math.ceil((line.chords.length * M.slotsPerBeat) / M.slots);
-      const bars = Math.max(bpl, need, 1);
+      // аккорды после слов — проигрыш в конце строки: по такту на каждый, слова поются на остальных тактах
+      const wordsEnd = line.text.trimEnd().length;
+      const tails = line.chords.length > 1 && line.chords.some((c) => c.at < wordsEnd) ? line.chords.filter((c) => c.at >= wordsEnd) : [];
+      const sungLine = tails.length ? { ...line, chords: line.chords.filter((c) => c.at < wordsEnd) } : line;
+      const need = Math.ceil((sungLine.chords.length * M.slotsPerBeat) / M.slots);
+      const bars = Math.max(bpl, need + tails.length, 1);
       const total = bars * M.slots;
-      const timed = timeLine(line, bars, M);
+      const sungTotal = (bars - tails.length) * M.slots;
+      const timed = timeLine(sungLine, bars - tails.length, M);
       if (timed.length && timed[0].t > 0) put(held, timed[0].t, null, null);
       timed.forEach((c, i) => {
-        const end = i + 1 < timed.length ? timed[i + 1].t : total;
+        const end = i + 1 < timed.length ? timed[i + 1].t : sungTotal;
         put(fixName(c.c), end - c.t, line.li, c.k);
         held = fixName(c.c);
       });
-      if (!timed.length) put(held, total, null, null);
+      if (!timed.length) put(held, sungTotal, null, null);
+      for (const c of tails) {
+        put(fixName(c.c), M.slots, line.li, c.k);
+        held = fixName(c.c);
+      }
       const start = pos;
       const beat = M.slotsPerBeat;
       const anchors = [];
@@ -276,7 +286,7 @@ export function textOrder(model, data, { barsPerLine = 0, cycles = 1 } = {}) {
       if (timed.length && timed[0].at > lead && timed[0].t === 0) anchors.push({ at: lead, t: start - beat });
       else if (!timed.length || timed[0].at > lead) anchors.push({ at: lead, t: start });
       for (const c of timed) anchors.push({ at: c.at, t: start + c.t });
-      anchors.push({ at: len, t: singEnd(line.text, anchors.at(-1), start + total) });
+      anchors.push({ at: len, t: tails.length ? start + sungTotal : singEnd(line.text, anchors.at(-1), start + total) });
       lines.push({ l: line.li, start, from: anchors[0].t, to: start + total, anchors });
       pos += total;
     }

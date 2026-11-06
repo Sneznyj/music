@@ -7,7 +7,7 @@
 // Текст хранится только в браузере человека. На привязанных устройствах Павла (ключ из ссылки #mytexts=…) он ещё и
 // уходит в «Мои тексты» (worker/mytexts) и виден везде.
 import { instChordCard } from '../lib/cards.js';
-import { cleanPasted, fitKey, hasChords, isChord, modelHTML, parseLines, placeChords, serialize, transposeText } from '../lib/chordpro.js';
+import { cleanPasted, fitKey, hasChords, isChord, modelHTML, parseLines, phraseOf, placeChords, serialize, transposeText } from '../lib/chordpro.js';
 import { icon } from '../lib/icons.js';
 import { voicingFor } from '../lib/instruments.js';
 import * as T from '../lib/theory.js';
@@ -299,10 +299,12 @@ function setup(root) {
       .map((l) => `${l.text.trim()}|${l.chords.map((c) => c.c).join(' ')}`)
       .join('\n');
   const freshText = () => placeChords(bareText(), sections(), { bpm: data.bpm, meter: data.meter });
+  // и у песен, где фраза кончается проигрышем (Knockin' on Heaven's Door: «G D | Am»), — раньше проигрыш уезжал на следующую строку
+  const tails = data.sections.some((s) => phraseOf(s.bars));
   function offerFresh() {
-    if (editing || !model.length || !data.sections.some((s) => s.rows) || store.get(keepName, '') === input.value) return;
+    if (editing || !model.length || !(data.sections.some((s) => s.rows) || tails) || store.get(keepName, '') === input.value) return;
     if (chordSig(parseLines(freshText())) === chordSig(model)) return;
-    say('Аккорды этого текста можно расставить точнее: строка за строкой, как на сайтах с аккордами. <button class="linkbtn sb-fresh" type="button">Расставить заново</button> · <button class="linkbtn sb-keep" type="button">Оставить как есть</button>');
+    say(`Аккорды этого текста можно расставить точнее: строка за строкой, как на сайтах с аккордами${tails ? ', а проигрыш в конце фразы — в конце своей строки' : ''}. <button class="linkbtn sb-fresh" type="button">Расставить заново</button> · <button class="linkbtn sb-keep" type="button">Оставить как есть</button>`);
   }
   offerFresh();
   hint.addEventListener('click', (e) => {
