@@ -286,6 +286,16 @@ export function textOrder(model, data, { barsPerLine = 0, cycles = 1 } = {}) {
   // chord.k — номер аккорда в строке модели (для подсветки над словами)
   for (const st of stanzas) for (const line of st.lines) line.chords = line.chords.map((c, k) => ({ ...c, k }));
 
+  // строфа идёт теми же тактами, что часть с партией из записи (такт в такт, по кругу) — играется этой партией
+  const barNames = (b) => b.map((c) => c.name).filter((n, i, a) => i === 0 || n !== a[i - 1]).join(' ');
+  const riffOf = (bars) => {
+    for (const s of data.sections) {
+      if (!s.riff || bars.length < Math.min(4, s.bars.length)) continue;
+      if (bars.every((b, i) => barNames(b) === barNames(s.bars[i % s.bars.length]))) return s.riff;
+    }
+    return null;
+  };
+
   const sections = [];
   const lines = [];
   const known = new Map();
@@ -313,7 +323,8 @@ export function textOrder(model, data, { barsPerLine = 0, cycles = 1 } = {}) {
       bar.at(-1).slots += room;
       bars.push(bar);
     }
-    sections.push({ name: st.head || 'Без подписи', repeat: 1, bars, l: st.headAt });
+    const riff = riffOf(bars);
+    sections.push({ name: st.head || 'Без подписи', repeat: 1, bars, l: st.headAt, ...(riff ? { riff } : {}) });
     for (const ln of done.lines) lines.push({ ...ln, start: ln.start + clock, from: ln.from + clock, to: ln.to + clock, anchors: ln.anchors.map((a) => ({ at: a.at, t: a.t + clock })) });
     clock += bars.length * M.slots;
   };

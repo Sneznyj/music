@@ -5184,3 +5184,118 @@ summary a > svg,
   font-family: var(--mono);
   font-size: 12.5px;
 }
+
+/* ---------- оригинал по «Играть» (static/js/w/original.js) ----------
+   в шапке песни — на месте превью клипа; шапка уехала или песню включили с обложки — окно в углу над нижним плеером.
+   Поверх видео ничего нет: полоска с названием и «закрыть» — над ним (правила YouTube) */
+.orig-host {
+  position: relative;
+}
+.orig-box {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  z-index: 3;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #000;
+}
+.orig-box[hidden] {
+  display: none;
+}
+.orig-frame {
+  position: absolute;
+  inset: 0;
+}
+.orig-frame > *,
+.orig-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.orig-head {
+  display: none;
+}
+.orig-hint {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--warm);
+}
+.orig-hint[hidden] {
+  display: none;
+}
+.orig-t.warn {
+  color: var(--warm);
+}
+.orig-box.float {
+  position: fixed;
+  left: auto;
+  top: auto;
+  right: 16px;
+  bottom: calc(var(--tabbar-h) + var(--player-h) + 12px);
+  width: min(380px, calc(100vw - 32px));
+  aspect-ratio: auto;
+  z-index: 46;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow);
+}
+.orig-box.float .orig-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.orig-t {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.orig-close {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.orig-close:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.orig-close svg {
+  width: 18px;
+  height: 18px;
+}
+.orig-box.float .orig-frame {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 200px;
+  background: #000;
+}
+.album-note {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.playalong + .band-row,
+.pa-btns + .band-row {
+  margin: 0 0 10px;
+}

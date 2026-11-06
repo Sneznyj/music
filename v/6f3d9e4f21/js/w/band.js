@@ -1,5 +1,5 @@
 // Полная версия песни: гитара, укулеле, клавишные, бас и барабаны по аккордам песни — от начала до конца,
-// со всеми повторами частей. Играет кнопка «Играть» на странице песни и ▶ на обложках (превью в нижнем плеере).
+// со всеми повторами частей. Играет «Вся группа» в панели «Играть вместе» и ▶ на обложках песен без клипа.
 // Состав — src/band.mjs: первая буква — ведущий инструмент (играет бой или перебор песни), остальные аккомпанируют.
 import { Seq, audio, drum, hush, loadDrums, note, prefetch } from '../audio.js';
 import { icon } from '../lib/icons.js';
@@ -7,11 +7,35 @@ import { drumHits, styleFor } from '../lib/drums.js';
 import { voicingFor } from '../lib/instruments.js';
 import { METERS, PATTERNS } from '../lib/patterns.js';
 import { fullForm } from '../lib/songtime.js';
+import { parseTab } from '../lib/tab.js';
 import * as T from '../lib/theory.js';
 import { loadPiano, pianoHush, pianoNote } from '../piano.js';
-import { claim, playStepOn, release, store } from './util.js';
+import { claim, playStepOn, playTabEvent, release, store } from './util.js';
 
 const mod12 = (v) => ((v % 12) + 12) % 12;
+
+// Партии из записи: часть с riff играется нотами таба, а не боем или перебором по аккордам.
+// Такты партии идут по кругу вместе с тактами части; место ноты — в восьмых от начала такта (бывает дробным).
+export function riffBars(data) {
+  const M = METERS[data.meter];
+  const out = {};
+  for (const [id, r] of Object.entries(data.riffs || {})) {
+    const tab = parseTab(r.tab, { grid: r.grid, meter: r.meter });
+    out[id] = tab.bars.map((b) => tab.events.filter((e) => e.t >= b.start && e.t < b.start + b.len).map((ev) => ({ ev, at: ((ev.t - b.start) * M.slots) / tab.ticksPerBar })));
+  }
+  return out;
+}
+// ноты партии в этой восьмой такта; null — у части нет партии. bar — такт порядка игры ({ bi, r }):
+// у части с повтором (×2) партия может идти на оба круга — второй круг берёт её такты дальше
+export function riffSlot(riffs, sec, bar, pos) {
+  const bars = sec?.riff && riffs[sec.riff];
+  if (!bars?.length) return null;
+  return bars[((bar.r || 0) * sec.bars.length + bar.bi) % bars.length].filter((x) => x.at >= pos && x.at < pos + 1);
+}
+// shift — сдвиг тональности от записи в полутонах
+export function playRiff(list, pos, time, slotSec, { shift = 0, vel = 0.8 } = {}) {
+  for (const x of list) playTabEvent(x.ev, time + (x.at - pos) * slotSec, x.at === 0 ? vel * 1.12 : vel, 'guitar', { shift, keep: true });
+}
 export const PART_NAMES = { g: 'Гитара', u: 'Укулеле', p: 'Клавишные', b: 'Бас', d: 'Барабаны' };
 export const PART_ORDER = 'gupbd';
 
@@ -76,6 +100,7 @@ export function makeBand(data, { key = () => ({ tr: 0, capo: data.capo || 0 }), 
   const { tl, secStart } = timeline(data, form);
   const altPos = data.meter === '6/8' ? 3 : M.slots / 2;
   const cache = new Map();
+  const riffs = riffBars(data);
 
   // звучащий аккорд (у всех, кроме гитары с каподастром) и форма гитары при её каподастре
   const chordAt = (orig) => {
@@ -126,7 +151,10 @@ export function makeBand(data, { key = () => ({ tr: 0, capo: data.capo || 0 }), 
 
     if (parts.includes('g')) {
       const vel = (pos === 0 ? 0.8 : 0.66) * (lead === 'g' ? 1 : 0.72);
-      playStepOn('guitar', step, a.g, a.shape, time, { kind: p.kind, vel, beat, half, next: nextFor('guitar') });
+      // ведущая гитара в части с партией из записи играет её (в своей тональности), остальное — по аккордам
+      const rs = lead === 'g' ? riffSlot(riffs, data.sections[bar.si], bar, pos) : null;
+      if (rs) playRiff(rs, pos, time, slotSec, { shift: key().tr, vel: 0.76 });
+      else playStepOn('guitar', step, a.g, a.shape, time, { kind: p.kind, vel, beat, half, next: nextFor('guitar') });
     }
     if (parts.includes('u')) {
       if (lead === 'u') playStepOn('ukulele', step, a.u, a.sound, time, { kind: p.kind, vel: pos === 0 ? 0.8 : 0.68, beat, half, next: nextFor('ukulele') });
@@ -174,7 +202,7 @@ export function silence() {
   pianoHush();
 }
 
-// ---------- превью: ▶ на обложке играет полную версию песни в нижнем плеере ----------
+// ---------- превью: ▶ на обложке играет оригинал (клип в углу), а у песни без клипа — полную версию сайта ----------
 const PLAY = icon('play', { fill: true });
 const PAUSE = icon('pause', { fill: true });
 const players = new Map();
@@ -195,48 +223,72 @@ export function initPreviews() {
         players.set(slug, p);
       }
       p.cards.add(card);
-      p.playing ? p.stop() : p.resume();
+      p.toggle();
     },
     true,
   );
 }
 
+// ▶ на обложке: оригинал (клип в окне в углу, w/original.js); у песни без клипа — полная версия силами сайта
 function previewPlayer(slug, card) {
-  let seq = null;
-  let band = null;
-  let data = null;
-  let lastT = 0;
   const cards = new Set([card]);
+  let p = null;
+  const paint = () =>
+    cards.forEach((c) => {
+      c.classList.toggle('cc-on', !!p?.playing);
+      const b = c.querySelector('.cc-play');
+      if (b) b.innerHTML = p?.playing ? PAUSE : PLAY;
+    });
+  let ready = null;
+  const load = () =>
+    (ready ??= fetch(`/data/play/${slug}.json`)
+      .then((r) => r.json())
+      .then(async (d) => {
+        if (d.orig) {
+          const { original } = await import('./original.js');
+          p = original({ slug, title: d.title, artist: d.artist, ...d.orig });
+          p.onChange(paint);
+        } else {
+          p = bandPreview(slug, cards, d);
+        }
+        return p;
+      })
+      .catch(() => null));
+  return {
+    cards,
+    async toggle() {
+      const pl = p || (await load());
+      if (!pl) return;
+      pl.playing ? pl.stop() : pl.resume();
+      paint();
+    },
+  };
+}
+
+// полная версия силами сайта в нижнем плеере (песня без клипа)
+function bandPreview(slug, cards, d) {
+  let lastT = 0;
+  const band = makeBand(d);
   const paint = () =>
     cards.forEach((c) => {
       c.classList.toggle('cc-on', api.playing);
       const b = c.querySelector('.cc-play');
       if (b) b.innerHTML = api.playing ? PAUSE : PLAY;
     });
-  const load = () =>
-    (data ??= fetch(`/data/play/${slug}.json`)
-      .then((r) => r.json())
-      .then((d) => {
-        band = makeBand(d);
-        api.title = d.title;
-        api.sub = `${d.artist} · полная версия`;
-        seq = new Seq({
-          total: band.total,
-          ticksPerBeat: band.M.slotsPerBeat,
-          bpm: () => d.bpm,
-          onTick: (t, time) => band.tick(t, time, partsFor(d), d.bpm),
-          onVisual: (t) => (lastT = t),
-          onEnd: () => {
-            api.playing = false;
-            lastT = 0;
-            paint();
-            release(api);
-          },
-        });
-        return d;
-      }));
+  const seq = new Seq({
+    total: band.total,
+    ticksPerBeat: band.M.slotsPerBeat,
+    bpm: () => d.bpm,
+    onTick: (t, time) => band.tick(t, time, partsFor(d), d.bpm),
+    onVisual: (t) => (lastT = t),
+    onEnd: () => {
+      api.playing = false;
+      lastT = 0;
+      paint();
+      release(api);
+    },
+  });
   const jump = (dir) => {
-    if (!band) return;
     const bi = Math.floor(lastT / band.M.slots);
     let k = 0;
     band.secStart.forEach((b, i) => b <= bi && (k = i));
@@ -245,17 +297,15 @@ function previewPlayer(slug, card) {
     if (api.playing) seq.start(lastT);
   };
   const api = {
-    title: '',
-    sub: 'полная версия',
+    title: d.title,
+    sub: `${d.artist} · полная версия`,
     slug,
     href: `/songs/${slug}/`,
-    el: card,
-    cards,
+    el: [...cards][0],
     playing: false,
-    progress: () => (band ? lastT / band.total : 0),
-    duration: () => (band ? band.total * seq.tickDur() : 0),
+    progress: () => lastT / band.total,
+    duration: () => band.total * seq.tickDur(),
     seek(p) {
-      if (!band) return;
       lastT = Math.floor((p * band.total) / band.M.slots) * band.M.slots;
       if (api.playing) seq.start(lastT);
     },
@@ -264,20 +314,15 @@ function previewPlayer(slug, card) {
     stop() {
       if (!api.playing) return;
       api.playing = false;
-      seq?.stop(true);
+      seq.stop(true);
       silence();
       paint();
       release(api);
     },
-    async resume() {
+    resume() {
       audio();
       api.playing = true;
       paint();
-      const d = await load().catch(() => null);
-      if (!d || !api.playing) {
-        api.playing = false;
-        return paint();
-      }
       preload(partsFor(d));
       claim(api);
       seq.start(lastT > 0 && lastT < band.total - 1 ? lastT : 0);

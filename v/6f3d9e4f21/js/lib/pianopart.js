@@ -67,7 +67,7 @@ export function pianoPart(data) {
       return o;
     });
     for (const c of list) chords.push({ t: t + c.start * slot, name: chordAt(c.name).sound });
-    if (riff) fromRiff(riff, bar.bi % riff.bars.length, t, barLen, capo, notes);
+    if (riff) fromRiff(riff, (bar.r * bar.sec.bars.length + bar.bi) % riff.bars.length, t, barLen, capo, notes);
     else if (pat.kind === 'pick') {
       list.forEach((c, ci) => {
         const a = chordAt(c.name);

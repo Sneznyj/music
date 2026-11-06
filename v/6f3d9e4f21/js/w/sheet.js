@@ -1,6 +1,7 @@
 // Страница песни: инструмент (гитара, укулеле, фортепиано, бас), тональность и каподастр, «без баррэ»,
-// «Играть» — полная версия песни всеми инструментами (w/band.js) и «Играть вместе» — ритм на своём инструменте
+// «Вся группа» — песня целиком силами сайта (w/band.js) и «Играть вместе» — ритм на своём инструменте
 // с отсчётом и подсветкой аккордов. Оба играют одним проигрывателем, видны в нижнем плеере и в панели справа от текста.
+// Части с партией из записи (riff у части) гитара играет нотами этой партии. «Играть» в шапке — оригинал (w/original.js).
 // Порядок игры: есть текст с аккордами — как в нём (lib/songtime.js textOrder, слова закрашивает w/karaoke.js), нет —
 // вся песня, собранная из её частей (fullForm).
 import { Seq, audio, click, drum, hush, loadDrums, setVolume } from '../audio.js';
@@ -13,7 +14,7 @@ import { METERS, PATTERNS, patternsFor } from '../lib/patterns.js';
 import * as T from '../lib/theory.js';
 import { barsPasses, fullForm, orderBars, partsSummary, textOrder } from '../lib/songtime.js';
 import { pianoHush } from '../piano.js';
-import { PART_ORDER, makeBand, partsFor, preload, saveParts, timeline } from './band.js';
+import { PART_ORDER, makeBand, partsFor, playRiff, preload, riffBars, riffSlot, saveParts, timeline } from './band.js';
 import { makeKaraoke } from './karaoke.js';
 import { PLAY_ICON, STOP_ICON, chordTip, claim, el, playButton, playChordOn, playStepOn, release, slider, store, toggle } from './util.js';
 
@@ -27,6 +28,7 @@ const semis = (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'полутон' :
 function setup(root) {
   const data = JSON.parse(root.querySelector('.sheet-data').textContent);
   const M = METERS[data.meter];
+  const riffs = riffBars(data);
   const saved = store.get('song.' + data.slug, {});
   const st = {
     tr: saved.tr || 0,
@@ -208,6 +210,8 @@ function setup(root) {
 
   const pa = root.querySelector('.playalong');
   pa.hidden = false;
+  const bandRow = root.querySelector('.band-row');
+  if (bandRow) bandRow.hidden = false;
   // с того места, где остановились (после конца — сначала)
   const resumeBar = () => (st.lastBar && st.lastBar < order.tl.length - 1 ? st.lastBar : 0);
   const play = playButton(() => {
@@ -243,7 +247,7 @@ function setup(root) {
   const now = el('div', { class: 'pa-card pa-cur' });
   const nxt = el('div', { class: 'pa-card pa-next' });
   const soon = el('div', { class: 'pa-soon' });
-  const bandBtn = el('button', { type: 'button', class: 'btn btn-small btn-ghost pa-band', title: 'Гитара, клавишные, бас и барабаны — как кнопка «Играть» вверху страницы' });
+  const bandBtn = el('button', { type: 'button', class: 'btn btn-small btn-ghost pa-band', title: 'Вся песня силами сайта: гитара, клавишные, бас и барабаны в выбранной тональности' });
   const againBtn = el('button', { type: 'button', class: 'btn btn-small btn-ghost pa-again' }, 'Сначала');
   const timeNow = el('span', { class: 'pa-t' }, '0:00');
   const timeAll = el('span', { class: 'pa-t' });
@@ -299,6 +303,8 @@ function setup(root) {
   pa.append(
     el('h2', { class: 'pa-title' }, 'Играть вместе'),
     el('div', { class: 'pa-btns' }, play, bandBtn, againBtn),
+    // кто звучит во «Всей группе» (разметка — в build.mjs, рядом с панелью)
+    bandRow || '',
     el('div', { class: 'pa-now' }, now, nxt),
     soon,
     el('div', { class: 'pa-time' }, timeNow, progBar, timeAll),
@@ -382,7 +388,6 @@ function setup(root) {
   };
 
   // полная версия: гитара, укулеле, клавишные, бас и барабаны в выбранной тональности
-  const songPlay = document.querySelector('.song-play');
   const partBtns = [...document.querySelectorAll('.band-row [data-part]')];
   // порядок — как в оригинале (первый — ведущий), добавленные человеком — в конец
   const rank = (x) => ((data.band || '').includes(x) ? data.band.indexOf(x) : 10 + PART_ORDER.indexOf(x));
@@ -426,7 +431,10 @@ function setup(root) {
         if (nc) next = { v: sounding(voicingOf(nc.orig)), name: nameOf(nc.orig) };
       }
       const half = 30 / (data.bpm * st.speed) / M.slotsPerBeat;
-      if (st.minus && st.guitar && ch) playStepOn(st.inst, step, sounding(voicingOf(ch.orig)), nameOf(ch.orig), time, { kind: p.kind, vel: pos === 0 ? 0.95 : 0.78, beat: pos % M.slotsPerBeat === 0, half, next });
+      // часть с партией из записи: гитара с ритмом песни играет её; выбрали другой ритм — играем его по аккордам
+      const rs = st.inst === 'guitar' && st.pattern === data.pattern ? riffSlot(riffs, order.src.sections[bar.si], bar, pos) : null;
+      if (st.minus && st.guitar && rs) playRiff(rs, pos, time, 60 / (data.bpm * st.speed) / M.slotsPerBeat, { shift: st.tr, vel: 0.85 });
+      else if (st.minus && st.guitar && ch) playStepOn(st.inst, step, sounding(voicingOf(ch.orig)), nameOf(ch.orig), time, { kind: p.kind, vel: pos === 0 ? 0.95 : 0.78, beat: pos % M.slotsPerBeat === 0, half, next });
       if (st.metro && pos % M.slotsPerBeat === 0) click(time, pos === 0, st.guitar ? 0.45 : 0.8);
       if (st.minus && st.drums) {
         const bi = Math.floor(t / M.slots);
@@ -525,7 +533,6 @@ function setup(root) {
     if (st.playing) stop();
     start(from, 'full');
   };
-  songPlay?.addEventListener('click', playFull);
   bandBtn.addEventListener('click', playFull);
   againBtn.addEventListener('click', () => {
     const mode = st.mode;
@@ -558,9 +565,6 @@ function setup(root) {
   const paintSongPlay = (on) => {
     bandBtn.innerHTML = `${on ? STOP_ICON : PLAY_ICON}<span>${on ? 'Пауза' : 'Вся группа'}</span>`;
     bandBtn.classList.toggle('on', on);
-    if (!songPlay) return;
-    songPlay.innerHTML = `${on ? STOP_ICON : PLAY_ICON}<span>${on ? 'Пауза' : 'Играть'}</span>`;
-    songPlay.classList.toggle('on', on);
   };
   paintSongPlay(false);
   function start(fromBar, mode = 'along', noCount = false) {

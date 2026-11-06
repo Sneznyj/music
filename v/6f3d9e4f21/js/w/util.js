@@ -64,20 +64,21 @@ export const nowPlaying = () => ({ current, playing });
 export const touchNowPlaying = emit;
 
 // Нота или аккорд таба: струны с нижней к 1-й, «раскат» — по очереди. inst — инструмент таба.
-export function playTabEvent(ev, when, vel = 0.85, inst = 'guitar') {
+// shift — сдвиг в полутонах (другая тональность), keep — глухой удар не глушит остальные звуки (в песне играет вся группа).
+export function playTabEvent(ev, when, vel = 0.85, inst = 'guitar', { shift = 0, keep = false } = {}) {
   const open = INSTRUMENTS[inst]?.open || OPEN;
   const top = open.length;
   const list = ev.notes.slice().sort((a, b) => b.s - a.s);
   if (list.every((n) => n.dead)) {
-    hush(when, 0.008);
-    chk(when, 0.75);
+    if (!keep) hush(when, 0.008);
+    chk(when, keep ? 0.45 : 0.75);
     return;
   }
   const voice = inst === 'ukulele' ? 'uke' : inst === 'bass' ? 'bass' : 'guitar';
   list.forEach((n, k) => {
     if (n.dead) return;
     const s = top - n.s;
-    note(open[s] + n.f, when + (ev.roll ? k * 0.03 : k * 0.003), { string: s, vel: n.tech ? vel * 0.8 : vel, bright: n.tech || inst !== 'guitar' ? 0 : 1, voice, legato: !!n.tech });
+    note(open[s] + n.f + shift, when + (ev.roll ? k * 0.03 : k * 0.003), { string: s, vel: n.tech ? vel * 0.8 : vel, bright: n.tech || inst !== 'guitar' ? 0 : 1, voice, legato: !!n.tech });
   });
 }
 

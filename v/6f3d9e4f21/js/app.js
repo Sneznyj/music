@@ -34,6 +34,7 @@ const blocks = [
   ['.tabplayer', () => import('./w/tabplayer.js')],
   ['.pattern', () => import('./w/pattern.js')],
   ['.songsheet', () => import('./w/sheet.js')],
+  ['.songsheet .sheet-data', () => import('./w/original.js')],
   ['.drill', () => import('./w/drill.js')],
   ['.tuner', () => import('./w/tuner.js')],
   ['.metronome', () => import('./w/metronome.js')],
